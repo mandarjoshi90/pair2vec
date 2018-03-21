@@ -1,0 +1,1 @@
+from relemb.data.dataset_readers import fb15K

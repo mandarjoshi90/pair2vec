@@ -1,0 +1,1 @@
+from relemb.models.distmult import DistMult
