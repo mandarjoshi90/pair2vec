@@ -23,7 +23,7 @@ class _LazyInstances(Iterable):
             raise ConfigurationError("For a lazy dataset reader, _read() must return a generator")
         return instances
 
-class DatasetReader(Registrable):
+class RelembDatasetReader(Registrable):
     """
     A ``DatasetReader`` knows how to turn a file containing a dataset into a collection
     of ``Instance`` s.  To implement your own, just override the `_read(file_path)` method
@@ -105,7 +105,7 @@ class DatasetReader(Registrable):
         raise NotImplementedError
 
     @classmethod
-    def from_params(cls, params: Params) -> 'DatasetReader':
+    def from_params(cls, params: Params) -> 'RelembDatasetReader':
         """
         Static method that constructs the dataset reader described by ``params``.
         """

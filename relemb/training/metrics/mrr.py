@@ -40,12 +40,9 @@ class MRR(Metric):
         gold_labels = gold_labels.data.cpu().numpy()
         for i in range(predictions.size(0)):
             rank = np.where(argsort[i] == gold_labels[i])[0][0]
-            # if rank == -1:
             self._ranks.append(rank + 1)
 
     def masked_index_fill(self, tensor, index, index_mask, value):
-        # import ipdb
-        # ipdb.set_trace()
         num_indices = index_mask.long().sum()
         valid_indices = index[: num_indices]
         tensor.index_fill_(0, valid_indices, value)
@@ -59,6 +56,8 @@ class MRR(Metric):
             candidates_mask = torch.zeros((candidates.size(0), num_entities), out=all_true_objects.data.new())
             cand_index_mask = (1 - torch.eq(candidates, -1).float())
             # candidates_mask.scatter_(1, candidates, 1)
+        # import ipdb
+        # ipdb.set_trace()
         for i in range(batch_size):
             if candidates is not None:
                 self.masked_index_fill(candidates_mask[i], candidates[i].data, cand_index_mask[i].data, 1)
@@ -74,7 +73,7 @@ class MRR(Metric):
         -------
         The accumulated accuracy.
         """
-        mrr = np.mean(1./np.array(self._ranks))
+        mrr = np.mean(1./np.array(self._ranks)) if len(self._ranks) > 0 else 0
         if reset:
             self.reset()
         return mrr

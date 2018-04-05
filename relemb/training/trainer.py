@@ -370,14 +370,13 @@ class Trainer:
         else:
             output_dict = self._model(**batch)
 
-        try:
-            loss = output_dict["loss"]
-            if for_training:
-                loss += self._model.get_regularization_penalty()
-        except KeyError:
+
+        loss = output_dict.get("loss", None)
+        if loss is None and for_training:
             raise ConfigurationError("The model you are trying to optimize does not contain a"
                                      " 'loss' key in the output of model.forward(inputs).")
-
+        if for_training:
+            loss += self._model.get_regularization_penalty()
         return loss
 
     def _get_metrics(self, total_loss: float, batch_num: int, reset: bool = False) -> Dict[str, float]:
@@ -421,7 +420,10 @@ class Trainer:
             histogram_parameters = set(self._model.get_parameters_for_histogram_tensorboard_logging())
 
         logger.info("Training")
+        s4 = time.time()
         for batch in train_generator_tqdm:
+            s1 = time.time()
+            # print("gen time {}".format(s1 - s4))
             batches_this_epoch += 1
             self._batch_num_total += 1
             batch_num_total = self._batch_num_total
@@ -430,8 +432,10 @@ class Trainer:
                     batch_num_total % self._histogram_interval == 0)
 
             self._optimizer.zero_grad()
+            s2 = time.time()
 
             loss = self._batch_loss(batch, for_training=True)
+            s3 = time.time()
             loss.backward()
 
             # Make sure Variable is on the cpu before converting to numpy.
@@ -483,6 +487,8 @@ class Trainer:
                 self._save_checkpoint(
                         '{0}.{1}'.format(epoch, time_to_str(int(last_save_time))), [], is_best=False
                 )
+            s4 = time.time()
+            # print('pre loss: {}, loss: {}, post: {}'.format(s2-s1, s3-s2, s4-s3))
 
         return self._get_metrics(train_loss, batches_this_epoch, reset=True)
 
@@ -631,7 +637,7 @@ class Trainer:
             batches_this_epoch += 1
 
             loss = self._batch_loss(batch, for_training=False)
-            val_loss += loss.data.cpu().numpy()
+            val_loss += loss.data.cpu().numpy() if loss is not None else 0
 
             # Update the description with the latest metrics
             val_metrics = self._get_metrics(val_loss, batches_this_epoch)

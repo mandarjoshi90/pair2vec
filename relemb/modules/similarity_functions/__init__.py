@@ -1,0 +1,1 @@
+from relemb.modules.similarity_functions.hadamard_mlp import HadamardSimilarity

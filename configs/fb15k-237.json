@@ -1,0 +1,48 @@
+{
+  "dataset_reader": {
+    "type": "fb15k",
+//    "use_relation_type_constraints": true,
+    "data_dir": "/fb15k-237/",
+    "preprocessed_dir": "/fb15k-237/preprocessed"
+  },
+  "train_data_path": {
+    "triples_file": "train.txt",
+    "partition": "train",
+    "valid_objects_pf": "subject_relation_to_objects_train.txt.tsv",
+    "valid_subjects_pf": "object_relation_to_subjects_train.txt.tsv"
+  },
+  "validation_data_path": {
+    "triples_file": "valid.txt",
+    "partition": "valid",
+    "valid_objects_pf": "subject_relation_to_objects_valid.txt.tsv",
+    "valid_subjects_pf": "object_relation_to_subjects_valid.txt.tsv"
+  },
+  "model": {
+    "type": "distmult",
+    "dropout": 0.2,
+    "embedding_dim": 200,
+    "num_negative_samples": 10
+  },
+  "iterator": {
+        "type": "basic",
+        "batch_size": 128
+    },
+  "trainer": {
+    "num_epochs": 200,
+    "grad_norm": 10.0,
+    "patience": 10,
+    "validation_metric": "+mrr",
+    "cuda_device": 0,
+    "learning_rate_scheduler": {
+        "type": "reduce_on_plateau",
+        "factor": 0.5,
+        "mode": "max",
+        "patience": 2
+    },
+    "optimizer": {
+      "type": "adam",
+      "betas": [0.9, 0.999],
+      "lr": 0.001
+    }
+  }
+}
