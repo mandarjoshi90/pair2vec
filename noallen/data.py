@@ -2,17 +2,8 @@ from torchtext.data import Field, Iterator, TabularDataset
 
 
 def read_data(config):
-    if config.compositional_args:
-        #TODO impl this
-        raise Exception('Not implemented yet.')
-    if config.relational_args:
-        # TODO impl this
-        raise Exception('Not implemented yet.')
-    
-    #TODO current impl assumes everything is an embedding
-    
-    args = Field()
-    rels = Field()
+    args = Field(lower=True, tokenize='spacy') if config.compositional_args else Field()
+    rels = Field(lower=True, tokenize='spacy') if config.relational_args else Field()
     
     #TODO we will need to add a header to the files
     data = TabularDataset(path=config.data_path, format='tsv', fields = [('subject', args), ('relation', rels), ('object', args)])

@@ -10,12 +10,12 @@ class RelationalEmbeddingModel(Module):
     def __init__(self, config):
         super(RelationalEmbeddingModel, self).__init__()
         if config.compositional_args:
-            self.represent_arguments = SpanRepresentation(config, config.d_args)
+            self.represent_arguments = SpanRepresentation(config, config.n_args, config.d_args)
         else:
             self.represent_arguments = Embedding(config.n_args, config.d_args)
         
         if config.compositional_rels:
-            self.represent_relations = SpanRepresentation(config, config.d_rels)
+            self.represent_relations = SpanRepresentation(config, config.n_rels, config.d_rels)
         else:
             self.represent_relations = Embedding(config.n_rels, config.d_rels)
         
