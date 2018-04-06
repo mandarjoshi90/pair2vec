@@ -4,6 +4,7 @@ import time
 
 import torch
 import torch.optim as optim
+from torch.nn.util import clip_grad_norm
 from tensorboardX import SummaryWriter
 
 from noallen.model import RelationalEmbeddingModel
@@ -11,7 +12,6 @@ from noallen.data import read_data
 from noallen.util import get_args, get_config, makedirs
 from noallen import metrics
 
-from allennlp.training.trainer import sparse_clip_norm
 import logging
 logger = logging.getLogger(__name__)
 
@@ -32,10 +32,6 @@ def main(args, config):
     writer.export_scalars_to_json("./all_scalars.json")
     writer.close()
 
-def rescale_gradients(model, grad_norm):
-    parameters_to_clip = [p for p in model.parameters()
-                          if p.grad is not None]
-    sparse_clip_norm(parameters_to_clip, grad_norm)
 
 def train(train_iter, dev_iter, model, config, writer):
     opt = optim.Adam(model.parameters(), lr=config.lr)
@@ -97,6 +93,11 @@ def train(train_iter, dev_iter, model, config, writer):
         
             elif iterations % config.log_every == 0:
                 stats_logger.log( epoch, iterations, batch_index, train_eval_stats, None)
+
+
+def rescale_gradients(model, grad_norm):
+    parameters_to_clip = [p for p in model.parameters() if p.grad is not None]
+    clip_grad_norm(parameters_to_clip, grad_norm)
 
 
 def save(config, model, loss, iterations, name):
