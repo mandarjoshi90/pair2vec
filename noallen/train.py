@@ -6,9 +6,14 @@ import torch
 import torch.optim as optim
 from tensorboardX import SummaryWriter
 
-from model import RelationalEmbeddingModel
-from data import read_data
-from util import get_args, get_config, makedirs
+from noallen.model import RelationalEmbeddingModel
+from noallen.data import read_data
+from noallen.util import get_args, get_config, makedirs
+from noallen import metrics
+
+from allennlp.training.trainer import sparse_clip_norm
+import logging
+logger = logging.getLogger(__name__)
 
 
 def main(args, config):
@@ -22,13 +27,17 @@ def main(args, config):
 
     writer = SummaryWriter(comment="_" + args.exp)
 
-    train(train_iter, dev_iter, model, writer)
+    train(train_iter, dev_iter, model, config, writer)
 
     writer.export_scalars_to_json("./all_scalars.json")
     writer.close()
 
+def rescale_gradients(model, grad_norm):
+    parameters_to_clip = [p for p in model.parameters()
+                          if p.grad is not None]
+    sparse_clip_norm(parameters_to_clip, grad_norm)
 
-def train(train_iter, dev_iter, model, writer):
+def train(train_iter, dev_iter, model, config, writer):
     opt = optim.Adam(model.parameters(), lr=config.lr)
     for param in model.parameters():
         print(param.size(), param.requires_grad)
@@ -38,8 +47,8 @@ def train(train_iter, dev_iter, model, writer):
     best_dev_loss = 1000
 
     makedirs(config.save_path)
-    logger = Logger(writer, start, len(train_iter))
-    print('    Time Epoch Iteration Progress    Loss     Dev/Loss     Train/Accuracy    Dev/Accuracy')
+    stats_logger = StatsLogger(writer, start, len(train_iter))
+    logger.info('    Time Epoch Iteration Progress    Loss     Dev/Loss     Train/Accuracy    Dev/Accuracy')
     
     for epoch in range(config.epochs):
         train_iter.init_epoch()
@@ -56,7 +65,9 @@ def train(train_iter, dev_iter, model, writer):
             
             # backpropagate and update optimizer learning rate
             loss.backward()
-            # TODO add grad clipping
+
+            # grad clipping
+            rescale_gradients(model, config.grad_norm)
             opt.step()
             
             # aggregate training error
@@ -74,8 +85,8 @@ def train(train_iter, dev_iter, model, writer):
                 for dev_batch_index, dev_batch in enumerate(dev_iter):
                     answer, loss = model(dev_batch)
                     dev_eval_stats.update(loss, answer, dev_batch.label)
-                
-                logger.log(train_eval_stats, dev_eval_stats)
+
+                stats_logger.log( epoch, iterations, batch_index, train_eval_stats, dev_eval_stats)
                 train_eval_stats = EvaluationStatistics()
                 
                 # update best validation set accuracy
@@ -85,7 +96,7 @@ def train(train_iter, dev_iter, model, writer):
                     save(config, model, loss, iterations, 'best_snapshot')
         
             elif iterations % config.log_every == 0:
-                logger.log(train_eval_stats, dev=False)
+                stats_logger.log( epoch, iterations, batch_index, train_eval_stats, None)
 
 
 def save(config, model, loss, iterations, name):
@@ -102,18 +113,18 @@ class EvaluationStatistics:
     def __init__(self):
         self.n_examples = 0
         self.loss = 0.0
-        self.acc = 0.0
+        self.mrr = 0.0
         
     def update(self, loss, prediction, gold):
         self.n_examples += prediction.size()[0]
         self.loss += loss.data[0]
-        self.acc += 0 #TODO: we want to rank or do something interesting with the prediction here. need params for this.
+        self.mrr += metrics.mrr(prediction, gold) #TODO: we want to rank or do something interesting with the prediction here. need params for this.
     
     def average(self):
-        return self.loss / self.n_examples, self.acc / self.n_examples
+        return self.loss / self.n_examples, self.mrr / self.n_examples
 
 
-class Logger:
+class StatsLogger:
     
     def __init__(self, writer, start, batches_per_epoch):
         self.log_template = ' '.join('{:>6.0f},{:>5.0f},{:>9.0f},{:>5.0f}/{:<5.0f},{:>8.6f},{:8.6f},{:12.4f},{:12.4f}'.split(','))
@@ -121,10 +132,10 @@ class Logger:
         self.start = start
         self.batches_per_epoch = batches_per_epoch
         
-    def log(self, epoch, iterations, batch_index, train_eval_stats, dev_eval_stats):
+    def log(self, epoch, iterations, batch_index, train_eval_stats, dev_eval_stats=None):
         train_loss, train_acc = train_eval_stats.average()
-        dev_loss, dev_acc = dev_eval_stats.average()
-        print(self.log_template.format(
+        dev_loss, dev_acc = dev_eval_stats.average() if dev_eval_stats is not None else ('-1.0', '-1.0')
+        logger.info(self.log_template.format(
             time.time() - self.start,
             epoch,
             iterations,

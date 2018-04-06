@@ -2,7 +2,7 @@ import torch
 from torch.nn import Module, Linear, Dropout, Sequential, Embedding
 from torch.nn.functional import logsigmoid, softmax
 
-from representation import SpanRepresentation
+from noallen.representation import SpanRepresentation
 
 
 class RelationalEmbeddingModel(Module):
