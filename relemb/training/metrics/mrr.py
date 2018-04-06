@@ -3,7 +3,6 @@ from typing import Optional
 from overrides import overrides
 import torch
 import numpy as np
-from allennlp.common.checks import ConfigurationError
 from allennlp.training.metrics.metric import Metric
 from torch.autograd import Variable
 
@@ -18,7 +17,7 @@ class MRR(Metric):
     def __call__(self,
                  predictions: torch.Tensor,
                  gold_labels: torch.Tensor,
-                 all_true_objects: torch.Tensor,
+                 all_true: torch.Tensor,
                  candidates: Optional[torch.Tensor]=None):
         """
         Parameters
@@ -32,7 +31,7 @@ class MRR(Metric):
             A masking tensor the same size as ``gold_labels``.
         """
         # Get the data from the Variables.
-        candidate_mask = self._get_mask(all_true_objects, candidates, gold_labels, predictions.size(1))
+        candidate_mask = self._get_mask(all_true, candidates, gold_labels, predictions.size(1))
         predictions = torch.sigmoid(predictions)
         predictions = predictions * candidate_mask
         max_values, argsort = torch.sort(predictions, 1, descending=True)
@@ -47,17 +46,14 @@ class MRR(Metric):
         valid_indices = index[: num_indices]
         tensor.index_fill_(0, valid_indices, value)
 
-    def _get_mask(self, all_true_objects, candidates, gold_labels, num_entities):
+    def _get_mask(self, all_true_objects, candidates, gold_labels, num_labels):
         batch_size = gold_labels.size(0)
         all_true_objects_mask = (1 - torch.eq(all_true_objects, -1).float()).byte()
         if candidates is None:
-            candidates_mask = torch.ones((all_true_objects.size(0), num_entities), out=all_true_objects.data.new())
+            candidates_mask = torch.ones((all_true_objects.size(0), num_labels), out=all_true_objects.data.new())
         else:
-            candidates_mask = torch.zeros((candidates.size(0), num_entities), out=all_true_objects.data.new())
+            candidates_mask = torch.zeros((candidates.size(0), num_labels), out=all_true_objects.data.new())
             cand_index_mask = (1 - torch.eq(candidates, -1).float())
-            # candidates_mask.scatter_(1, candidates, 1)
-        # import ipdb
-        # ipdb.set_trace()
         for i in range(batch_size):
             if candidates is not None:
                 self.masked_index_fill(candidates_mask[i], candidates[i].data, cand_index_mask[i].data, 1)
