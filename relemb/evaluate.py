@@ -30,18 +30,15 @@ and report any metrics calculated by the model.
     --include-package INCLUDE_PACKAGE
                             additional packages to include
 """
-from typing import Dict, Any, Iterable
 import argparse
 import logging
 
 from allennlp.commands.subcommand import Subcommand
-from allennlp.common.util import prepare_environment
 from allennlp.common.tqdm import Tqdm
 from allennlp.data import Instance
-from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.iterators import DataIterator
-from allennlp.models.archival import load_archive
 from allennlp.models.model import Model
+from typing import Dict, Any, Iterable
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 

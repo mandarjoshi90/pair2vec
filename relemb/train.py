@@ -31,25 +31,13 @@ which to write the results.
                            outputs tqdm status on separate lines and slows tqdm
                            refresh rate
 """
-from typing import Dict, Iterable
 import argparse
-import json
 import logging
 import os
-from copy import deepcopy
 
-from allennlp.commands.evaluate import evaluate
 from allennlp.commands.subcommand import Subcommand
-from allennlp.common.checks import ConfigurationError
 from allennlp.common import Params
-from allennlp.common.util import prepare_environment, prepare_global_logging
-from allennlp.data import Vocabulary
-from allennlp.data.instance import Instance
-from allennlp.data.iterators.data_iterator import DataIterator
-from relemb.data.dataset_readers.dataset_reader import RelembDatasetReader
-from allennlp.models.archival import archive_model, CONFIG_NAME
-from allennlp.models.model import Model, _DEFAULT_WEIGHTS
-from relemb.training import Trainer
+from allennlp.models.model import Model
 
 if os.environ.get("ALLENNLP_DEBUG"):
     LEVEL = logging.DEBUG

@@ -1,5 +1,4 @@
 import json
-import ipdb
 
 def slurp_file(fname):
     with open(fname) as f:
