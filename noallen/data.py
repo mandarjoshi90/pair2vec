@@ -1,46 +1,33 @@
-
+from torchtext.data import Field, Iterator, TabularDataset
 
 
 def read_data(config):
-    inputs = data.Field(lower=config.lower, tokenize='spacy')
-    answers = data.Field(sequential=False, unk_token=None)
-    
-    
-    # Load data.
-    train, dev, test = datasets.SNLI.splits(inputs, answers)
-    print ("Dev data size", len(dev), len(hard_dev))
-    
-    inputs.build_vocab(train, dev, test)
-    if config.word_vectors:
-        if os.path.isfile(config.vector_cache):
-            inputs.vocab.vectors = torch.load(config.vector_cache)
-        else:
-            inputs.vocab.load_vectors(config.word_vectors)
-            makedirs(os.path.dirname(config.vector_cache))
-            torch.save(inputs.vocab.vectors, config.vector_cache)
-    answers.build_vocab(train)
-    print (type(answers), answers.vocab.stoi, answers.vocab.itos)
-    
-    train_iter, dev_iter, test_iter = data.BucketIterator.splits(
-        (train, dev, test), batch_size=config.batch_size, device=args.gpu)
-    print (dev_iter)
-    train_iter.repeat = False
-    
-    
-    
     if config.compositional_args:
+        #TODO impl this
+        raise Exception('Not implemented yet.')
+    if config.relational_args:
+        # TODO impl this
+        raise Exception('Not implemented yet.')
     
-    else:
+    #TODO current impl assumes everything is an embedding
     
+    args = Field()
+    rels = Field()
     
-    if config.compositional_rels:
+    #TODO we will need to add a header to the files
+    data = TabularDataset(path=config.data_path, format='tsv', fields = [('subject', args), ('relation', rels), ('object', args)])
+    train, dev = data.split(split_ratio=0.99)
+    print('Train size:', len(train), '   Dev size:', len(dev))
     
-    else:
-    
-    
-    # Some arguments.
+    args.build_vocab(train)
+    rels.build_vocab(train)
     config.n_args = len(args.vocab)
     config.n_rels = len(rels.vocab)
     print("#Args:", config.n_args, "   #Rels:", config.n_rels)
+    
+    train_iter, dev_iter = Iterator.splits((train, dev), batch_size=config.batch_size, device=args.gpu)
+    train_iter.repeat = False
+    
+    #TODO need to figure out how to duplicate the relations field, and then detach it from the regular order. This'll allow us to effectively sample relations.
     
     return train_iter, dev_iter
