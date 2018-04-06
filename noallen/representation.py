@@ -36,7 +36,7 @@ class LSTMContextualizer(Module):
     def forward(self, inputs):
         inputs = inputs.permute(1, 0, 2)
         batch_size = inputs.size()[1]
-        state_shape = self.config.n_cells, batch_size, self.config.d_hidden
+        state_shape = self.config.n_layers * 2, batch_size, self.config.d_hidden
         h0 = c0 = Variable(inputs.data.new(*state_shape).zero_())
         outputs, (ht, ct) = self.rnn(inputs, (h0, c0))  # outputs: [seq_len, batch, hidden * 2]
         return outputs.permute(1, 0, 2)

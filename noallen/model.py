@@ -1,5 +1,5 @@
 import torch
-from torch.nn import Module, Linear, Dropout, Sequential
+from torch.nn import Module, Linear, Dropout, Sequential, Embedding
 from torch.nn.functional import logsigmoid, softmax
 
 from representation import SpanRepresentation
@@ -12,12 +12,12 @@ class RelationalEmbeddingModel(Module):
         if config.compositional_args:
             self.represent_arguments = SpanRepresentation(config, config.d_args)
         else:
-            self.represent_arguments = nn.Embedding(config.num_args, config.d_args)
+            self.represent_arguments = Embedding(config.n_args, config.d_args)
         
         if config.compositional_rels:
             self.represent_relations = SpanRepresentation(config, config.d_rels)
         else:
-            self.represent_relations = nn.Embedding(config.num_rels, config.d_rels)
+            self.represent_relations = Embedding(config.n_rels, config.d_rels)
         
         if config.relation_predictor == 'multiplication':
             self.predict_relations = lambda x, y: x * y
@@ -29,7 +29,8 @@ class RelationalEmbeddingModel(Module):
             raise Exception('Unknown relation predictor: ' + config.relation_predictor)
         
     
-    def forward(self, subjects, objects, observed_relations, sampled_relations):
+    def forward(self, batch):
+        subjects, objects, observed_relations, sampled_relations = batch
         subjects = self.represent_arguments(subjects)
         objects = self.represent_arguments(objects)
         observed_relations = self.represent_relations(observed_relations)
