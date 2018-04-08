@@ -21,6 +21,11 @@ class Config:
     def __init__(self, **entries):
         self.__dict__.update(entries)
 
+    def __str__(self):
+        string = ''
+        for key, value in self.__dict__.items():
+            string += key + ': ' + str(value) + '\n'
+        return string
 
 def get_config(filename, exp_name):
     config_dict = pyhocon.ConfigFactory.parse_file(filename)[exp_name]
@@ -33,6 +38,7 @@ def print_config(config):
 
 def get_args():
     parser = ArgumentParser(description='Relation Embeddings')
+    parser.add_argument('--config', type=str, default="experiments.conf")
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--exp', type=str, default='multiplication')
     parser.add_argument('--resume_snapshot', type=str, default='')

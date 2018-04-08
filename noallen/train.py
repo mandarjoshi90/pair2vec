@@ -4,20 +4,22 @@ import time
 
 import torch
 import torch.optim as optim
-from torch.nn.util import clip_grad_norm
+from torch.nn.utils import clip_grad_norm
 from tensorboardX import SummaryWriter
 
 from noallen.model import RelationalEmbeddingModel
-from noallen.data import read_data
+from noallen.data2 import read_data
 from noallen.util import get_args, get_config, makedirs
 from noallen import metrics
 
 import logging
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 def main(args, config):
-    train_iter, dev_iter = read_data(config)
+    # train_iter, dev_iter = read_data(config)
+    train_data, dev_data, iterator = read_data(config)
     
     if args.resume_snapshot:
         model = torch.load(args.resume_snapshot, map_location=lambda storage, location: storage.cuda(args.gpu))
@@ -27,37 +29,38 @@ def main(args, config):
 
     writer = SummaryWriter(comment="_" + args.exp)
 
-    train(train_iter, dev_iter, model, config, writer)
+    train(train_data, dev_data, iterator, model, config, writer)
 
     writer.export_scalars_to_json("./all_scalars.json")
     writer.close()
 
 
-def train(train_iter, dev_iter, model, config, writer):
+def train(train_data, dev_data, iterator, model, config, writer):
     opt = optim.Adam(model.parameters(), lr=config.lr)
-    for param in model.parameters():
-        print(param.size(), param.requires_grad)
+    print(model)
+    # for name, param in model.named_parameters():
+    #     logger.info(name, param.size(), param.requires_grad)
     
     iterations = 0
     start = time.time()
     best_dev_loss = 1000
 
     makedirs(config.save_path)
-    stats_logger = StatsLogger(writer, start, len(train_iter))
+    stats_logger = StatsLogger(writer, start, 0)
     logger.info('    Time Epoch Iteration Progress    Loss     Dev/Loss     Train/Accuracy    Dev/Accuracy')
     
     for epoch in range(config.epochs):
-        train_iter.init_epoch()
+        # train_iter.init_epoch()
         train_eval_stats = EvaluationStatistics()
         
-        for batch_index, batch in enumerate(train_iter):
+        for batch_index, batch in enumerate(iterator(train_data, cuda_device=args.gpu, num_epochs=1)):
             # Switch model to training mode, clear gradient accumulators
             model.train()
             opt.zero_grad()
             iterations += 1
             
             # forward pass
-            answer, loss = model(batch)
+            answer, loss = model(**batch)
             
             # backpropagate and update optimizer learning rate
             loss.backward()
@@ -67,7 +70,7 @@ def train(train_iter, dev_iter, model, config, writer):
             opt.step()
             
             # aggregate training error
-            train_eval_stats.update(loss, answer, batch.label)
+            train_eval_stats.update(loss, answer, None)
             
             # checkpoint model periodically
             if iterations % config.save_every == 0:
@@ -76,11 +79,11 @@ def train(train_iter, dev_iter, model, config, writer):
             # evaluate performance on validation set periodically
             if iterations % config.dev_every == 0:
                 model.eval()
-                dev_iter.init_epoch()
+                # dev_iter.init_epoch()
                 dev_eval_stats = EvaluationStatistics()
-                for dev_batch_index, dev_batch in enumerate(dev_iter):
-                    answer, loss = model(dev_batch)
-                    dev_eval_stats.update(loss, answer, dev_batch.label)
+                for dev_batch_index, dev_batch in (enumerate(iterator(dev_data, cuda_device=args.gpu, num_epochs=1))):
+                    answer, loss = model(**dev_batch)
+                    dev_eval_stats.update(loss, answer, None)
 
                 stats_logger.log( epoch, iterations, batch_index, train_eval_stats, dev_eval_stats)
                 train_eval_stats = EvaluationStatistics()
@@ -103,7 +106,7 @@ def rescale_gradients(model, grad_norm):
 def save(config, model, loss, iterations, name):
     snapshot_prefix = os.path.join(config.save_path, name)
     snapshot_path = snapshot_prefix + '_loss_{:.6f}_iter_{}_model.pt'.format(loss.data[0], iterations)
-    torch.save(model, snapshot_path)
+    torch.save(model.state_dict(), snapshot_path)
     for f in glob.glob(snapshot_prefix + '*'):
         if f != snapshot_path:
             os.remove(f)
@@ -119,7 +122,7 @@ class EvaluationStatistics:
     def update(self, loss, prediction, gold):
         self.n_examples += prediction.size()[0]
         self.loss += loss.data[0]
-        self.mrr += metrics.mrr(prediction, gold) #TODO: we want to rank or do something interesting with the prediction here. need params for this.
+        # self.mrr += metrics.mrr(prediction, gold) #TODO: we want to rank or do something interesting with the prediction here. need params for this.
     
     def average(self):
         return self.loss / self.n_examples, self.mrr / self.n_examples
@@ -135,7 +138,7 @@ class StatsLogger:
         
     def log(self, epoch, iterations, batch_index, train_eval_stats, dev_eval_stats=None):
         train_loss, train_acc = train_eval_stats.average()
-        dev_loss, dev_acc = dev_eval_stats.average() if dev_eval_stats is not None else ('-1.0', '-1.0')
+        dev_loss, dev_acc = dev_eval_stats.average() if dev_eval_stats is not None else (-1.0, -1.0)
         logger.info(self.log_template.format(
             time.time() - self.start,
             epoch,
@@ -147,16 +150,16 @@ class StatsLogger:
             train_acc,
             dev_acc))
 
-        self.writer.add_scalar('Train Loss', train_loss, iterations)
-        self.writer.add_scalar('Dev Loss', dev_loss, iterations)
-        self.writer.add_scalar('Train Acc.', train_acc, iterations)
-        self.writer.add_scalar('Dev Acc.', dev_acc, iterations)
+        self.writer.add_scalar('Train_Loss', train_loss, iterations)
+        self.writer.add_scalar('Dev_Loss', dev_loss, iterations)
+        self.writer.add_scalar('Train_Acc.', train_acc, iterations)
+        self.writer.add_scalar('Dev_Acc.', dev_acc, iterations)
 
 
 if __name__ == "__main__":
     args = get_args()
     print("Running experiment:", args.exp)
-    config = get_config("experiments.conf", args.exp)
+    config = get_config(args.config, args.exp)
     print(config)
     torch.cuda.set_device(args.gpu)
     main(args, config)
