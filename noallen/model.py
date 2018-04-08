@@ -29,17 +29,18 @@ class RelationalEmbeddingModel(Module):
             raise Exception('Unknown relation predictor: ' + config.relation_predictor)
         
     
-    def forward(self, batch):
-        subjects, objects, observed_relations, sampled_relations = batch
+    def forward(self, subjects, objects, observed_relations, sampled_relations):
+        subjects, objects, observed_relations, sampled_relations = subjects.squeeze(-1), objects.squeeze(-1), observed_relations.squeeze(-1), sampled_relations.squeeze(-1)
         subjects = self.represent_arguments(subjects)
         objects = self.represent_arguments(objects)
         observed_relations = self.represent_relations(observed_relations)
         sampled_relations = self.represent_relations(sampled_relations)
         
         predicted_relations = self.predict_relations(subjects, objects)
-        
-        positive_loss = -logsigmoid(torch.bmm(predicted_relations, observed_relations)).sum()
-        negative_loss = -logsigmoid(-torch.bmm(predicted_relations, sampled_relations)).sum()
+        # import ipdb
+        # ipdb.set_trace()
+        positive_loss = -logsigmoid(torch.mul(predicted_relations, observed_relations).sum()).sum()
+        negative_loss = -logsigmoid(-torch.mul(predicted_relations, sampled_relations).sum()).sum()
         loss = positive_loss + negative_loss
         
         return predicted_relations, loss
