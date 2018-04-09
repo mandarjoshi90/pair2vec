@@ -3,6 +3,9 @@ import numpy as np
 from torch.autograd import Variable
 
 
+def positive_predictions_for(predicted_probs, threshold=0.5):
+    return sum(torch.gt(predicted_probs.data, threshold).cpu().numpy().tolist())
+
 def mrr(predictions, gold_labels, all_true, candidates=None):
     reciprocal_ranks = []
     candidate_mask = get_mask(all_true, candidates, gold_labels, predictions.size(1))

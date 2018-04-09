@@ -1,5 +1,20 @@
 import pyhocon
 from argparse import ArgumentParser
+from allennlp.modules.token_embedders.embedding import _read_pretrained_embedding_file
+from torch.nn.init import xavier_normal_
+
+def pretrained_embeddings_or_xavier(config, embedding, vocab, namespace):
+    pretrained_file = config.pretrained_file if hasattr(config, "pretrained_file") else None
+    if pretrained_file is not None:
+        pretrained_embeddings(pretrained_file, embedding,
+                                                 vocab, namespace)
+    else:
+        xavier_normal_(embedding.weight.data)
+
+def pretrained_embeddings(pretrained_file, embedding, vocab, namespace):
+    weight = _read_pretrained_embedding_file(pretrained_file, embedding.embedding_dim,
+                                             vocab, namespace)
+    embedding.weight.data.copy_(weight)
 
 
 def makedirs(name):

@@ -1,24 +1,35 @@
 import torch
 from torch.nn import Module, Linear, Dropout, Sequential, LSTM, Embedding
 from torch.nn.functional import softmax
+from allennlp.nn.util import masked_softmax
 from torch.autograd import Variable
+from torch.nn.init import xavier_normal
+from noallen.util import pretrained_embeddings_or_xavier
 
 class SpanRepresentation(Module):
     
-    def __init__(self, config, n_input, d_output):
+    def __init__(self, config, n_input, d_output, vocab, namespace):
         super(SpanRepresentation, self).__init__()
+        self.config = config
+        self.vocab = vocab
+        self.vocab_namespace = namespace
         self.embedding = Embedding(n_input, config.d_embed)
+
         self.contextualizer = LSTMContextualizer(config)
         self.dropout = Dropout(p=config.dropout)
         self.head_attention = Sequential(self.dropout, Linear(2 * config.d_lstm_hidden, 1))
         self.head_transform = Sequential(self.dropout, Linear(2 * config.d_lstm_hidden, d_output))
-    
+        self.init()
+
+    def init(self):
+        pretrained_embeddings_or_xavier(self.config, self.embedding, self.vocab, self.vocab_namespace)
+
+
     def forward(self, inputs):
         text, mask = inputs
         text = self.contextualizer(self.embedding(text))
-        mask = torch.log(mask).unsqueeze(-1)
-        weights = softmax(self.head_attention(text) + mask)
-        representation = (weights * self.head_transform(text)).sum(dim=1)
+        weights = masked_softmax(self.head_attention(text).squeeze(-1), mask.float())
+        representation = (weights.unsqueeze(2) * self.head_transform(text)).sum(dim=1)
         return representation
 
 
@@ -27,13 +38,12 @@ class LSTMContextualizer(Module):
     def __init__(self, config):
         super(LSTMContextualizer, self).__init__()
         self.config = config
-        self.output_size = config.d_hidden * 2
-        self.rnn = LSTM(input_size=self.d_lstm_input, hidden_size=config.d_lstm_hidden, num_layers=config.n_lstm_layers, dropout=config.dropout, bidirectional=True)
+        self.rnn = LSTM(input_size=config.d_lstm_input, hidden_size=config.d_lstm_hidden, num_layers=config.n_lstm_layers, dropout=config.dropout, bidirectional=True)
     
     def forward(self, inputs):
         inputs = inputs.permute(1, 0, 2)
         batch_size = inputs.size()[1]
-        state_shape = self.config.n_layers * 2, batch_size, self.config.d_hidden
+        state_shape = self.config.n_lstm_layers * 2, batch_size, self.config.d_lstm_hidden
         h0 = c0 = Variable(inputs.data.new(*state_shape).zero_())
         outputs, (ht, ct) = self.rnn(inputs, (h0, c0))  # outputs: [seq_len, batch, hidden * 2]
         return outputs.permute(1, 0, 2)

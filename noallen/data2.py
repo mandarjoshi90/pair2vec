@@ -10,7 +10,7 @@ class TripleReader(DatasetReader):
     def __init__(self, config):
         super().__init__(lazy=True)
         config.relation_namespace = 'tokens' if config.compositional_rels else "relation_labels"
-        config.argument_namespace = 'tokens' if config.compositional_rels else "arg_labels"
+        config.argument_namespace = 'tokens' if config.compositional_args else "arg_labels"
         self.config = config
 
         self._token_indexers = {'tokens': SingleIdTokenIndexer()}
