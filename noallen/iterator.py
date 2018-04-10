@@ -13,13 +13,19 @@ from allennlp.data.dataset import Batch
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
+def expand_instance_list(instance_list):
+    new_list = []
+    for instance in instance_list:
+        count = instance.fields['metadata'].metadata['count']
+        for _ in range(count):
+            new_list.append(instance)
+    return new_list
 
 def add_negative_samples(instance_list, positive_field_name, negative_field_name):
+    instance_list = expand_instance_list(instance_list)
     sampled_fields = [instance.fields[positive_field_name] for instance in instance_list]
     random.shuffle(sampled_fields)
     for instance, negative_field in zip(instance_list, sampled_fields):
-        # import ipdb
-        # ipdb.set_trace()
         instance.fields[negative_field_name] = negative_field
     return instance_list
 

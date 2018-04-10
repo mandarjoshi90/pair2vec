@@ -46,7 +46,7 @@ class RelationalEmbeddingModel(Module):
         return output_dict
 
 
-    def forward(self, subjects, objects, observed_relations, sampled_relations):
+    def forward(self, subjects, objects, observed_relations, sampled_relations, metadata=None):
         subjects, objects, observed_relations, sampled_relations = self.to_tensors((subjects, objects, observed_relations, sampled_relations))
         subjects = self.represent_arguments(subjects)
         objects = self.represent_arguments(objects)

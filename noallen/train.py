@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 def main(args, config):
-    # train_iter, dev_iter = read_data(config)
+    fh = logging.FileHandler(os.path.join(config.save_path, 'stdout.log'))
+    logger.addHandler(fh)
     train_data, dev_data, iterator = read_data(config)
     
     if args.resume_snapshot:
@@ -47,7 +48,7 @@ def train(train_data, dev_data, iterator, model, config, writer):
 
     makedirs(config.save_path)
     stats_logger = StatsLogger(writer, start, 0)
-    logger.info('    Time Epoch Iteration Progress    Loss     Dev/Loss     Train/Accuracy    Dev/Accuracy')
+    logger.info('    Time Epoch Iteration Progress    Loss     Dev_Loss     Train_Pos     Train_Neg     Dev_Pos     Dev_Neg')
 
     dev_eval_stats = None
     for epoch in range(config.epochs):
@@ -87,6 +88,7 @@ def train(train_data, dev_data, iterator, model, config, writer):
                     dev_eval_stats.update(loss, dev_output_dict)
 
                 stats_logger.log( epoch, iterations, batch_index, train_eval_stats, dev_eval_stats)
+                stats_logger.epoch_log(epoch, train_eval_stats, dev_eval_stats)
                 train_eval_stats = EvaluationStatistics(config)
                 
                 # update best validation set accuracy
@@ -166,6 +168,14 @@ class StatsLogger:
         self.writer.add_scalar('Train_Neg.', train_neg, iterations)
         self.writer.add_scalar('Dev_Pos.', dev_pos, iterations)
         self.writer.add_scalar('Dev_Neg.', dev_neg, iterations)
+
+    def epoch_log(self, epoch, train_eval_stats, dev_eval_stats):
+        train_loss, train_pos, train_neg = train_eval_stats.average()
+        dev_loss, dev_pos, dev_neg = dev_eval_stats.average()
+
+        logger.info("In epoch {}".format(epoch))
+        logger.info("Epoch:{}, train loss: {}, dev loss:{}, train pos:{}, train neg:{}, dev pos: {} dev neg: {}".format(epoch,
+                                                                                                                        train_loss, dev_loss, train_pos, train_neg, dev_pos, dev_neg))
 
 
 if __name__ == "__main__":
