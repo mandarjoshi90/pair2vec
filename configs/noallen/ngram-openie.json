@@ -26,5 +26,6 @@
   "rel_idx": 2,
   "obj_idx": 1,
   "count_idx": 3,
-  "max_vocab_size": 1000000
+  "max_vocab_size": 1000000,
+  "split_on": " ",
 }

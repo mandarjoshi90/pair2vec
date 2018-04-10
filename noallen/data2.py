@@ -1,10 +1,15 @@
 from allennlp.data import DatasetReader, Vocabulary, Instance, Token
-from allennlp.data.fields import TextField, LabelField
+from allennlp.data.fields import TextField, LabelField, MetadataField
 from noallen.iterator import BasicSamplingIterator
 from allennlp.data.token_indexers import SingleIdTokenIndexer
 from allennlp.common import Params
+from typing import Optional, Dict, Union, Sequence, Iterable
+from tqdm import tqdm
+from collections import defaultdict
 import os
 
+# This is bad; this belongs in the Vocabulary class. Bad. Bad. Bad.
+from allennlp.data.vocabulary import DEFAULT_NON_PADDED_NAMESPACES
 
 class TripleReader(DatasetReader):
     def __init__(self, config):
@@ -16,7 +21,7 @@ class TripleReader(DatasetReader):
         self._token_indexers = {'tokens': SingleIdTokenIndexer()}
 
     def _get_tokens(self, entity):
-        return [Token(token) for token in entity.split('_')]
+        return [Token(token) for token in entity.split(self.config.split_on)]
 
     def get_field(self, string, is_relation):
         if is_relation:
@@ -29,16 +34,19 @@ class TripleReader(DatasetReader):
                                                                                                      label_namespace='arg_labels')
     def _read(self, filename: str):
         with open(filename, encoding='utf-8') as f:
-            for line in f:
+            for line_idx, line in enumerate(f):
                 parts = line.strip().split('\t')
                 parts = [part.strip() for part in parts]
-                instance = self.text_to_instance(parts[0], parts[2], parts[1])
+                count = int(parts[self.config.count_idx]) if hasattr(self.config, "count_idx") else 1
+                instance = self.text_to_instance(parts[self.config.sub_idx], parts[self.config.obj_idx], parts[self.config.rel_idx], count)
                 yield instance
 
-    def text_to_instance(self, subject, obj, relation=None):
+    def text_to_instance(self, subject, obj, relation=None, count=1):
         fields = {}
         fields['subjects'] = self.get_field(subject, False)
         fields['objects'] = self.get_field(obj, False)
+        metadata = {"count": count}
+        fields['metadata'] = MetadataField(metadata)
 
         if relation is not None:
             fields['observed_relations'] = self.get_field(relation, True)
@@ -53,13 +61,34 @@ def create_dataset(config):
     return train_data, validation_data
 
 
+def vocab_from_instances(train_instances: Iterable['adi.Instance'],
+                    dev_instances: Iterable['adi.Instance'],
+                   min_count: Dict[str, int] = None,
+                   max_vocab_size: Union[int, Dict[str, int]] = None,
+                   non_padded_namespaces: Sequence[str] = DEFAULT_NON_PADDED_NAMESPACES,
+                   pretrained_files: Optional[Dict[str, str]] = None,
+                   only_include_pretrained_words: bool = False) -> 'Vocabulary':
+
+    namespace_token_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for instance in tqdm(train_instances):
+        instance.count_vocab_items(namespace_token_counts)
+    for instance in tqdm(dev_instances):
+        instance.count_vocab_items(namespace_token_counts)
+
+    return Vocabulary(counter=namespace_token_counts,
+                      min_count=min_count,
+                      max_vocab_size=max_vocab_size,
+                      non_padded_namespaces=non_padded_namespaces,
+                      pretrained_files=pretrained_files,
+                      only_include_pretrained_words=only_include_pretrained_words)
+
 def create_vocab(config, datasets):
     vocab_path = os.path.join(config.save_path, "vocabulary")
     if os.path.exists(vocab_path):
         vocab = Vocabulary.from_files(vocab_path)
     else:
-        all_instances = [instance for dataset in datasets for instance in dataset]
-        vocab = Vocabulary.from_params(Params({}), all_instances)
+        max_vocab_size = config.max_vocab_size if hasattr(config, "max_vocab_size") else None
+        vocab = vocab_from_instances(datasets[0], datasets[1], max_vocab_size=max_vocab_size)
     vocab.save_to_files(vocab_path)
     return vocab
 

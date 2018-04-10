@@ -26,5 +26,6 @@
   "rel_idx": 1,
   "obj_idx": 2,
   "count_idx": 3
+  "split_on": " ",
 
 }
