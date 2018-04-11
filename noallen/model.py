@@ -55,7 +55,7 @@ class RelationalEmbeddingModel(Module):
 
         output_dict = {'predicted_relations': predicted_relations}
         loss = None
-        if observed_relations and sampled_relations:
+        if observed_relations is not None and sampled_relations is not None:
             observed_relations, sampled_relations = self.to_tensors((observed_relations, sampled_relations))
             observed_relations = self.represent_relations(observed_relations)
             sampled_relations = self.represent_relations(sampled_relations)
