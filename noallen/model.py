@@ -4,7 +4,7 @@ from torch.nn import Module, Linear, Dropout, Sequential, Embedding
 from torch.nn.functional import logsigmoid, softmax
 from allennlp.nn.util import get_text_field_mask
 from noallen.representation import SpanRepresentation
-from torch.nn.init import xavier_normal
+from torch.nn.init import xavier_normal_
 from noallen.util import pretrained_embeddings_or_xavier
 
 class RelationalEmbeddingModel(Module):
@@ -32,12 +32,14 @@ class RelationalEmbeddingModel(Module):
             self.predict_relations = GatedInterpolation(config)
         else:
             raise Exception('Unknown relation predictor: ' + config.relation_predictor)
+        self.init()
 
     def init(self):
         if isinstance(self.represent_arguments, Embedding):
             pretrained_embeddings_or_xavier(self.config, self.represent_arguments, self.vocab, self.config.argument_namespace)
         if isinstance(self.represent_relations, Embedding):
-            pretrained_embeddings_or_xavier(self.config, self.represent_relations, self.vocab, self.config.relation_namespace)
+            xavier_normal_(self.represent_relations.weight.data)
+            # pretrained_embeddings_or_xavier(self.config, self.represent_relations, self.vocab, self.config.relation_namespace)
     
     def get_output_metadata(self, predicted_relations, observed_relations, sampled_relations, output_dict):
         observed_relation_probabilities = torch.sigmoid((predicted_relations * observed_relations).sum(-1))
