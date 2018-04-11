@@ -35,8 +35,10 @@ import argparse
 import logging
 import os
 from allennlp.common import Params
-from allennlp.data import Vocabulary
+from allennlp.data import Vocabulary, Instance
 from allennlp.models.model import Model
+import torch
+from typing import Dict, Iterable
 
 if os.environ.get("ALLENNLP_DEBUG"):
     LEVEL = logging.DEBUG

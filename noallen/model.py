@@ -15,14 +15,14 @@ class RelationalEmbeddingModel(Module):
         self.vocab = vocab
         self.config = config
         if config.compositional_args:
-            self.represent_arguments = SpanRepresentation(config, config.n_args, config.d_args, vocab, config.argument_namespace)
+            self.represent_arguments = SpanRepresentation(config, config.d_args, vocab, config.argument_namespace)
         else:
             self.represent_arguments = Embedding(config.n_args, config.d_args)
         
         if config.compositional_rels:
-            self.represent_relations = SpanRepresentation(config, config.n_rels, config.d_rels, vocab, config.relation_namespace)
+            self.represent_relations = SpanRepresentation(config, config.d_rels, vocab, config.relation_namespace)
         else:
-            self.represent_relations = Embedding(config.n_rels, config.d_rels)
+            self.represent_relations = Embedding(vocab.get_vocab_size(config.relation_namespace), config.d_rels)
         
         if config.relation_predictor == 'multiplication':
             self.predict_relations = lambda x, y: x * y
@@ -39,27 +39,30 @@ class RelationalEmbeddingModel(Module):
         if isinstance(self.represent_relations, Embedding):
             pretrained_embeddings_or_xavier(self.config, self.represent_relations, self.vocab, self.config.relation_namespace)
     
-    def get_output_metadata(self, predicted_relations, observed_relations, sampled_relations):
+    def get_output_metadata(self, predicted_relations, observed_relations, sampled_relations, output_dict):
         observed_relation_probabilities = torch.sigmoid((predicted_relations * observed_relations).sum(-1))
         sampled_relation_probabilities = torch.sigmoid((predicted_relations * sampled_relations).sum(-1))
-        output_dict = {'observed_probabilities': observed_relation_probabilities, "sampled_probabilities" :sampled_relation_probabilities}
+        output_dict['observed_probabilities'] = observed_relation_probabilities
+        output_dict['sampled_probabilities'] = sampled_relation_probabilities
         return output_dict
 
 
-    def forward(self, subjects, objects, observed_relations, sampled_relations, metadata=None):
-        subjects, objects, observed_relations, sampled_relations = self.to_tensors((subjects, objects, observed_relations, sampled_relations))
+    def forward(self, subjects, objects, observed_relations=None, sampled_relations=None, metadata=None):
+        subjects, objects = self.to_tensors((subjects, objects))
         subjects = self.represent_arguments(subjects)
         objects = self.represent_arguments(objects)
-        observed_relations = self.represent_relations(observed_relations)
-        sampled_relations = self.represent_relations(sampled_relations)
-        
         predicted_relations = self.predict_relations(subjects, objects)
-        # import ipdb
-        # ipdb.set_trace()
-        positive_loss = -logsigmoid((predicted_relations * observed_relations).sum(-1)).sum()
-        negative_loss = -logsigmoid(-(predicted_relations * sampled_relations).sum(-1)).sum()
-        loss = positive_loss + negative_loss
-        output_dict = self.get_output_metadata(predicted_relations, observed_relations, sampled_relations)
+
+        output_dict = {'predicted_relations': predicted_relations}
+        loss = None
+        if observed_relations and sampled_relations:
+            observed_relations, sampled_relations = self.to_tensors((observed_relations, sampled_relations))
+            observed_relations = self.represent_relations(observed_relations)
+            sampled_relations = self.represent_relations(sampled_relations)
+            positive_loss = -logsigmoid((predicted_relations * observed_relations).sum(-1)).sum()
+            negative_loss = -logsigmoid(-(predicted_relations * sampled_relations).sum(-1)).sum()
+            loss = positive_loss + negative_loss
+        output_dict = self.get_output_metadata(predicted_relations, observed_relations, sampled_relations, output_dict)
         return predicted_relations, loss, output_dict
     
 

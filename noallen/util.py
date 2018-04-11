@@ -2,6 +2,52 @@ import pyhocon
 from argparse import ArgumentParser
 from allennlp.modules.token_embedders.embedding import _read_pretrained_embedding_file
 from torch.nn.init import xavier_normal_
+import torch
+import os
+import logging
+
+logger = logging.getLogger(__name__)
+
+def load_model(resume_snapshot, model):
+    if os.path.isfile(resume_snapshot):
+        logger.info("Loading checkpoint '{}'".format(resume_snapshot))
+        checkpoint = torch.load(resume_snapshot)
+        model.load_state_dict(checkpoint['state_dict'])
+    else:
+        logger.info("No checkpoint found at '{}'".format(resume_snapshot))
+
+def resume_from(resume_snapshot, model, optimizer):
+    if os.path.isfile(resume_snapshot):
+        logger.info("Loading checkpoint '{}'".format(resume_snapshot))
+        checkpoint = torch.load(resume_snapshot)
+        model.load_state_dict(checkpoint['state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        logger.info("Loaded checkpoint '{}' (epoch {} iter: {} train_loss: {}, dev_loss: {}, train_pos:{}, train_neg: {}, dev_pos: {}, dev_neg: {})"
+              .format(resume_snapshot, checkpoint['epoch'], checkpoint['iterations'], checkpoint['train_loss'], checkpoint['dev_loss'], checkpoint['train_pos'], checkpoint['train_neg'], checkpoint['dev_pos'], checkpoint['dev_neg']))
+    else:
+        logger.info("No checkpoint found at '{}'".format(resume_snapshot))
+
+def save_checkpoint(config, model, optimizer, epoch, iterations, train_eval_stats, dev_eval_stats, name):
+    train_loss, train_pos, train_neg = train_eval_stats.average()
+    dev_loss, dev_pos, dev_neg = dev_eval_stats.average() if dev_eval_stats is not None else (-1.0, -1.0, -1.0)
+
+    snapshot_prefix = os.path.join(config.save_path, name)
+    snapshot_path = snapshot_prefix + '_loss_{:.6f}_iter_{}_pos_{}_neg_{}_model.pt'.format(train_loss, iterations,
+                                                                                           train_pos, train_neg)
+
+    state = {
+            'epoch': epoch,
+            'iterations': iterations,
+            'state_dict': model.state_dict(),
+            'train_loss': train_loss,
+            'dev_loss': dev_loss,
+            'train_pos': train_pos,
+            'train_neg': train_neg,
+            'dev_pos': dev_pos,
+            'dev_neg': dev_neg,
+            'optimizer' : optimizer.state_dict(),
+        }
+    torch.save(state, snapshot_path)
 
 def pretrained_embeddings_or_xavier(config, embedding, vocab, namespace):
     pretrained_file = config.pretrained_file if hasattr(config, "pretrained_file") else None

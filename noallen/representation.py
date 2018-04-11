@@ -8,11 +8,12 @@ from noallen.util import pretrained_embeddings_or_xavier
 
 class SpanRepresentation(Module):
     
-    def __init__(self, config, n_input, d_output, vocab, namespace):
+    def __init__(self, config, d_output, vocab, namespace):
         super(SpanRepresentation, self).__init__()
         self.config = config
         self.vocab = vocab
         self.vocab_namespace = namespace
+        n_input = vocab.get_vocab_size(namespace)
         self.embedding = Embedding(n_input, config.d_embed)
 
         self.contextualizer = LSTMContextualizer(config)

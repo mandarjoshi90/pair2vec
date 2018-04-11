@@ -11,6 +11,7 @@ from noallen.model import RelationalEmbeddingModel
 from noallen.data2 import read_data
 from noallen.util import get_args, get_config, makedirs
 from noallen import metrics
+from  noallen import util
 
 import logging
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s - %(message)s', level=logging.INFO)
@@ -18,33 +19,36 @@ logger = logging.getLogger(__name__)
 
 
 def main(args, config):
-    fh = logging.FileHandler(os.path.join(config.save_path, 'stdout.log'))
+    mode = 'a' if args.resume_snapshot else 'w'
+    fh = logging.FileHandler(os.path.join(config.save_path, 'stdout.log'), mode=mode)
     logger.addHandler(fh)
+
+
     train_data, dev_data, iterator = read_data(config)
-    
+
+    model = RelationalEmbeddingModel(config, iterator.vocab)
+    model.cuda()
+    opt = optim.Adam(model.parameters(), lr=config.lr)
     if args.resume_snapshot:
-        model = torch.load(args.resume_snapshot, map_location=lambda storage, location: storage.cuda(args.gpu))
-    else:
-        model = RelationalEmbeddingModel(config, iterator.vocab)
-        model.cuda()
+        util.resume_from(args.resume_snapshot, model, opt)
 
     writer = SummaryWriter(comment="_" + args.exp)
 
-    train(train_data, dev_data, iterator, model, config, writer)
+    train(train_data, dev_data, iterator, model, config, opt, writer)
 
     writer.export_scalars_to_json("./all_scalars.json")
     writer.close()
 
 
-def train(train_data, dev_data, iterator, model, config, writer):
-    opt = optim.Adam(model.parameters(), lr=config.lr)
-    print(model)
+def train(train_data, dev_data, iterator, model, config, opt, writer):
+
+    logger.info(    model)
     # for name, param in model.named_parameters():
     #     logger.info(name, param.size(), param.requires_grad)
     
     iterations = 0
     start = time.time()
-    best_dev_loss = 1000
+    best_dev_loss, best_train_loss = 1000, 1000
 
     makedirs(config.save_path)
     stats_logger = StatsLogger(writer, start, 0)
@@ -81,7 +85,6 @@ def train(train_data, dev_data, iterator, model, config, writer):
             # evaluate performance on validation set periodically
             if iterations % config.dev_every == 0:
                 model.eval()
-                # dev_iter.init_epoch()
                 dev_eval_stats = EvaluationStatistics(config)
                 for dev_batch_index, dev_batch in (enumerate(iterator(dev_data, cuda_device=args.gpu, num_epochs=1))):
                     answer, loss, dev_output_dict = model(**dev_batch)
@@ -89,13 +92,15 @@ def train(train_data, dev_data, iterator, model, config, writer):
 
                 stats_logger.log( epoch, iterations, batch_index, train_eval_stats, dev_eval_stats)
                 stats_logger.epoch_log(epoch, train_eval_stats, dev_eval_stats)
-                train_eval_stats = EvaluationStatistics(config)
                 
                 # update best validation set accuracy
-                dev_loss = dev_eval_stats.average()[0]
-                if dev_loss < best_dev_loss:
-                    best_dev_loss = dev_loss
-                    save(config, model, loss, iterations, 'best_snapshot')
+                train_loss = train_eval_stats.average()[0]
+                if train_loss < best_train_loss:
+                    best_train_loss = train_loss
+                    util.save_checkpoint(config, model, opt, epoch, iterations, train_eval_stats, dev_eval_stats, 'best_train_snapshot')
+
+                # reset train stats
+                train_eval_stats = EvaluationStatistics(config)
         
             elif iterations % config.log_every == 0:
                 stats_logger.log( epoch, iterations, batch_index, train_eval_stats, dev_eval_stats)
@@ -174,7 +179,7 @@ class StatsLogger:
         dev_loss, dev_pos, dev_neg = dev_eval_stats.average()
 
         logger.info("In epoch {}".format(epoch))
-        logger.info("Epoch:{}, train loss: {}, dev loss:{}, train pos:{}, train neg:{}, dev pos: {} dev neg: {}".format(epoch,
+        logger.info("Epoch:{}, train loss: {:.6f}, dev loss:{:.6f}, train pos:{:.4f}, train neg:{:.4f}, dev pos: {:.4f} dev neg: {:.4f}".format(epoch,
                                                                                                                         train_loss, dev_loss, train_pos, train_neg, dev_pos, dev_neg))
 
 

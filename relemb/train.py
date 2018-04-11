@@ -34,11 +34,11 @@ which to write the results.
 import argparse
 import logging
 import os
-
+from typing import Dict, Iterable
 from allennlp.commands.subcommand import Subcommand
 from allennlp.common import Params
 from allennlp.models.model import Model
-
+from allennlp.data import Instance
 if os.environ.get("ALLENNLP_DEBUG"):
     LEVEL = logging.DEBUG
 else:

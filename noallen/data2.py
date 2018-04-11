@@ -6,11 +6,13 @@ from allennlp.common import Params
 from typing import Optional, Dict, Union, Sequence, Iterable
 from tqdm import tqdm
 from collections import defaultdict
+from noallen import util
 import os
 
 # This is bad; this belongs in the Vocabulary class. Bad. Bad. Bad.
 from allennlp.data.vocabulary import DEFAULT_NON_PADDED_NAMESPACES
 
+@DatasetReader.register('triple_reader')
 class TripleReader(DatasetReader):
     def __init__(self, config):
         super().__init__(lazy=True)
@@ -52,6 +54,13 @@ class TripleReader(DatasetReader):
             fields['observed_relations'] = self.get_field(relation, True)
         instance = Instance(fields)
         return instance
+
+    @classmethod
+    def from_params(cls, params: Params) -> 'TripleReader':
+        config_file = params.pop('config_file')
+        exp = params.pop('experiment', 'multiplication')
+        config = util.get_config(config_file, exp)
+        return cls(config=config)
 
 
 def create_dataset(config):
