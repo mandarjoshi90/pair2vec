@@ -22,10 +22,13 @@ logger = logging.getLogger(__name__)
 
 
 def prepare_env(args, config):
+    # logging
     mode = 'a' if args.resume_snapshot else 'w'
     fh = logging.FileHandler(os.path.join(config.save_path, 'stdout.log'), mode=mode)
     fh.setFormatter(logging.Formatter(format))
     logger.addHandler(fh)
+
+    # add seeds
 
 def main(args, config):
     prepare_env(args, config)
@@ -33,7 +36,7 @@ def main(args, config):
 
     model = RelationalEmbeddingModel(config, iterator.vocab)
     model.cuda()
-    opt = optim.Adam(model.parameters(), lr=config.lr)
+    opt = optim.SGD(model.parameters(), lr=config.lr)
 
     checkpoint = None
     if args.resume_snapshot:
@@ -58,7 +61,7 @@ def train(train_data, dev_data, iterator, model, config, opt,  writer, checkpoin
 
     iterations = 0 if checkpoint is None else checkpoint['iterations']
     start_epoch = 0 if checkpoint is None else checkpoint['epoch']
-    scheduler = StepLR(opt, step_size=config.dev_every, gamma=0.9, last_epoch=iterations)
+    scheduler = StepLR(opt, step_size=config.dev_every, gamma=0.9, last_epoch=iterations - 1)
 
     logger.info('LR: {}'.format(scheduler.get_lr()))
     logger.info('    Time Epoch Iteration Progress    Loss     Dev_Loss     Train_Pos     Train_Neg     Dev_Pos     Dev_Neg')
