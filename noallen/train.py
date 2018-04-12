@@ -56,9 +56,9 @@ def train(train_data, dev_data, iterator, model, config, opt,  writer, checkpoin
     makedirs(config.save_path)
     stats_logger = StatsLogger(writer, start, 0)
 
-    scheduler = StepLR(opt, step_size=config.dev_every, gamma=0.9)
     iterations = 0 if checkpoint is None else checkpoint['iterations']
     start_epoch = 0 if checkpoint is None else checkpoint['epoch']
+    scheduler = StepLR(opt, step_size=config.dev_every, gamma=0.9, last_epoch=iterations)
 
     logger.info('LR: {}'.format(scheduler.get_lr()))
     logger.info('    Time Epoch Iteration Progress    Loss     Dev_Loss     Train_Pos     Train_Neg     Dev_Pos     Dev_Neg')
