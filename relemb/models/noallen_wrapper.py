@@ -54,8 +54,8 @@ class NoAllenWrapper(Model):
             for j in range(k):
                 relation_name = self.vocab.get_token_from_index(int(indices[i,j]), namespace='relation_labels')
                 score = float(values[i, j])
-                if relation_name != 'relation':
-                    top.append([relation_name, score])
+                # if relation_name != 'relation':
+                top.append([relation_name, score])
             topk.append(top)
         return topk
 

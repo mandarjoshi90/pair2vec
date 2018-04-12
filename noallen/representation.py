@@ -3,7 +3,7 @@ from torch.nn import Module, Linear, Dropout, Sequential, LSTM, Embedding
 from torch.nn.functional import softmax
 from allennlp.nn.util import masked_softmax
 from torch.autograd import Variable
-from torch.nn.init import xavier_normal
+from torch.nn.init import xavier_normal_, constant_
 from noallen.util import pretrained_embeddings_or_xavier
 
 class SpanRepresentation(Module):
@@ -16,13 +16,15 @@ class SpanRepresentation(Module):
         n_input = vocab.get_vocab_size(namespace)
         self.embedding = Embedding(n_input, config.d_embed)
 
-        self.contextualizer = LSTMContextualizer(config)
+
+        self.contextualizer = LSTMContextualizer(config) if config.n_lstm_layers > 0 else lambda x : x
         self.dropout = Dropout(p=config.dropout)
         self.head_attention = Sequential(self.dropout, Linear(2 * config.d_lstm_hidden, 1))
         self.head_transform = Sequential(self.dropout, Linear(2 * config.d_lstm_hidden, d_output))
         self.init()
 
     def init(self):
+        [xavier_normal_(p) for p in self.parameters() if len(p.size()) > 1]
         pretrained_embeddings_or_xavier(self.config, self.embedding, self.vocab, self.vocab_namespace)
 
 

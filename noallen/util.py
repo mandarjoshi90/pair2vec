@@ -5,6 +5,7 @@ from torch.nn.init import xavier_normal_
 import torch
 import os
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +25,15 @@ def resume_from(resume_snapshot, model, optimizer):
         optimizer.load_state_dict(checkpoint['optimizer'])
         logger.info("Loaded checkpoint '{}' (epoch {} iter: {} train_loss: {}, dev_loss: {}, train_pos:{}, train_neg: {}, dev_pos: {}, dev_neg: {})"
               .format(resume_snapshot, checkpoint['epoch'], checkpoint['iterations'], checkpoint['train_loss'], checkpoint['dev_loss'], checkpoint['train_pos'], checkpoint['train_neg'], checkpoint['dev_pos'], checkpoint['dev_neg']))
+        return checkpoint
     else:
         logger.info("No checkpoint found at '{}'".format(resume_snapshot))
+        return None
 
 def save_checkpoint(config, model, optimizer, epoch, iterations, train_eval_stats, dev_eval_stats, name):
+    # save config
+    config.dump_to_file(os.path.join(config.save_path, "saved_config.json"))
+
     train_loss, train_pos, train_neg = train_eval_stats.average()
     dev_loss, dev_pos, dev_neg = dev_eval_stats.average() if dev_eval_stats is not None else (-1.0, -1.0, -1.0)
 
@@ -37,7 +43,7 @@ def save_checkpoint(config, model, optimizer, epoch, iterations, train_eval_stat
 
     state = {
             'epoch': epoch,
-            'iterations': iterations,
+            'iterations': iterations + 1,
             'state_dict': model.state_dict(),
             'train_loss': train_loss,
             'dev_loss': dev_loss,
@@ -88,9 +94,16 @@ class Config:
             string += key + ': ' + str(value) + '\n'
         return string
 
-def get_config(filename, exp_name):
+    def dump_to_file(self, path):
+        with open(path, 'w') as f:
+            json.dump(self.__dict__, f, indent=4)
+
+def get_config(filename, exp_name, save_path):
     config_dict = pyhocon.ConfigFactory.parse_file(filename)[exp_name]
-    return Config(**config_dict)
+    config = Config(**config_dict)
+    if save_path is not None:
+        config.save_path = save_path
+    return config
 
 
 def print_config(config):
@@ -100,6 +113,7 @@ def print_config(config):
 def get_args():
     parser = ArgumentParser(description='Relation Embeddings')
     parser.add_argument('--config', type=str, default="experiments.conf")
+    parser.add_argument('--save_path', type=str)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--exp', type=str, default='multiplication')
     parser.add_argument('--resume_snapshot', type=str, default='')
