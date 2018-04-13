@@ -41,6 +41,8 @@ class TripleReader(DatasetReader):
                 parts = [part.strip() for part in parts]
                 count = int(parts[self.config.count_idx]) if hasattr(self.config, "count_idx") else 1
                 instance = self.text_to_instance(parts[self.config.sub_idx], parts[self.config.obj_idx], parts[self.config.rel_idx], count)
+                # if line_idx > self.config.batch_size:
+                #     break
                 yield instance
 
     def text_to_instance(self, subject, obj, relation=None, count=1):

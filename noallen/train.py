@@ -12,50 +12,69 @@ from noallen.data2 import read_data
 from noallen.util import get_args, get_config, makedirs
 from noallen import metrics
 from  noallen import util
+import numpy
 
 import logging
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s - %(message)s', level=logging.INFO)
+from torch.optim.lr_scheduler import StepLR
+
+format = '%(asctime)s - %(levelname)s - %(name)s - %(message)s'
+logging.basicConfig(format=format, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def main(args, config):
+def prepare_env(args, config):
+    # logging
     mode = 'a' if args.resume_snapshot else 'w'
     fh = logging.FileHandler(os.path.join(config.save_path, 'stdout.log'), mode=mode)
+    fh.setFormatter(logging.Formatter(format))
     logger.addHandler(fh)
 
+    # add seeds
+    seed = args.seed 
+    numpy.random.seed(seed)
+    torch.manual_seed(seed)
+    # Seed all GPUs with the same seed if available.
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
+def main(args, config):
+    prepare_env(args, config)
     train_data, dev_data, train_iterator, dev_iterator = read_data(config)
 
     model = RelationalEmbeddingModel(config, train_iterator.vocab)
     model.cuda()
-    opt = optim.Adam(model.parameters(), lr=config.lr)
+    opt = optim.SGD(model.parameters(), lr=config.lr)
+
+    checkpoint = None
     if args.resume_snapshot:
-        util.resume_from(args.resume_snapshot, model, opt)
+        checkpoint = util.resume_from(args.resume_snapshot, model, opt)
 
     writer = SummaryWriter(comment="_" + args.exp)
 
-    train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt, writer)
+    train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt, writer, checkpoint)
 
     writer.export_scalars_to_json("./all_scalars.json")
     writer.close()
 
 
-def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt, writer):
+def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt, writer, checkpoint=None):
 
     logger.info(    model)
-    # for name, param in model.named_parameters():
-    #     logger.info(name, param.size(), param.requires_grad)
-    
-    iterations = 0
     start = time.time()
     best_dev_loss, best_train_loss = 1000, 1000
 
     makedirs(config.save_path)
     stats_logger = StatsLogger(writer, start, 0)
+
+    iterations = 0 if checkpoint is None else checkpoint['iterations']
+    start_epoch = 0 if checkpoint is None else checkpoint['epoch']
+    scheduler = StepLR(opt, step_size=config.dev_every, gamma=0.9, last_epoch=iterations - 1    )
+
+    logger.info('LR: {}'.format(scheduler.get_lr()))
     logger.info('    Time Epoch Iteration Progress    Loss     Dev_Loss     Train_Pos     Train_Neg     Dev_Pos     Dev_Neg')
 
     dev_eval_stats = None
-    for epoch in range(config.epochs):
+    for epoch in range(start_epoch, config.epochs):
         # train_iter.init_epoch()
         train_eval_stats = EvaluationStatistics(config)
         
@@ -64,6 +83,7 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
             model.train()
             opt.zero_grad()
             iterations += 1
+            scheduler.step()
             
             # forward pass
             answer, loss, output_dict = model(**batch)
@@ -101,6 +121,7 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
 
                 # reset train stats
                 train_eval_stats = EvaluationStatistics(config)
+                logger.info('LR: {}'.format(scheduler.get_lr()))
         
             elif iterations % config.log_every == 0:
                 stats_logger.log( epoch, iterations, batch_index, train_eval_stats, dev_eval_stats)
@@ -186,7 +207,8 @@ class StatsLogger:
 if __name__ == "__main__":
     args = get_args()
     print("Running experiment:", args.exp)
-    config = get_config(args.config, args.exp)
+    arg_save_path = args.save_path if hasattr(args, "save_path") else None
+    config = get_config(args.config, args.exp, arg_save_path)
     print(config)
     torch.cuda.set_device(args.gpu)
     main(args, config)
