@@ -111,7 +111,7 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
                     dev_eval_stats.update(loss, dev_output_dict)
 
                 stats_logger.log( epoch, iterations, batch_index, train_eval_stats, dev_eval_stats)
-                stats_logger.epoch_log(epoch, train_eval_stats, dev_eval_stats)
+                stats_logger.epoch_log(epoch, iterations, train_eval_stats, dev_eval_stats)
                 
                 # update best validation set accuracy
                 train_loss = train_eval_stats.average()[0]
@@ -195,13 +195,12 @@ class StatsLogger:
         self.writer.add_scalar('Dev_Pos.', dev_pos, iterations)
         self.writer.add_scalar('Dev_Neg.', dev_neg, iterations)
 
-    def epoch_log(self, epoch, train_eval_stats, dev_eval_stats):
+    def epoch_log(self, epoch, iterations, train_eval_stats, dev_eval_stats):
         train_loss, train_pos, train_neg = train_eval_stats.average()
         dev_loss, dev_pos, dev_neg = dev_eval_stats.average()
 
         logger.info("In epoch {}".format(epoch))
-        logger.info("Epoch:{}, train loss: {:.6f}, dev loss:{:.6f}, train pos:{:.4f}, train neg:{:.4f}, dev pos: {:.4f} dev neg: {:.4f}".format(epoch,
-                                                                                                                        train_loss, dev_loss, train_pos, train_neg, dev_pos, dev_neg))
+        logger.info("Epoch:{}, iter:{}, train loss: {:.6f}, dev loss:{:.6f}, train pos:{:.4f}, train neg:{:.4f}, dev pos: {:.4f} dev neg: {:.4f}".format(epoch, iterations,                                                                                                                   train_loss, dev_loss, train_pos, train_neg, dev_pos, dev_neg))
 
 
 if __name__ == "__main__":
