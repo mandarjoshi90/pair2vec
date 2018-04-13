@@ -24,11 +24,11 @@ class SpanRepresentation(Module):
 
     def init(self):
         pretrained_embeddings_or_xavier(self.config, self.embedding, self.vocab, self.vocab_namespace)
-
-
+    
     def forward(self, inputs):
         text, mask = inputs
-        text = self.contextualizer(self.embedding(text))
+        text = self.embedding(text)
+        text = self.contextualizer(text)
         weights = masked_softmax(self.head_attention(text).squeeze(-1), mask.float())
         representation = (weights.unsqueeze(2) * self.head_transform(text)).sum(dim=1)
         return representation

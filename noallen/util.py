@@ -1,7 +1,7 @@
 import pyhocon
 from argparse import ArgumentParser
 from allennlp.modules.token_embedders.embedding import _read_pretrained_embedding_file
-from torch.nn.init import xavier_normal_
+from torch.nn.init import xavier_normal
 import torch
 import os
 import logging

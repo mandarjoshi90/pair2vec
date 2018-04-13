@@ -24,9 +24,9 @@ def main(args, config):
     logger.addHandler(fh)
 
 
-    train_data, dev_data, iterator = read_data(config)
+    train_data, dev_data, train_iterator, dev_iterator = read_data(config)
 
-    model = RelationalEmbeddingModel(config, iterator.vocab)
+    model = RelationalEmbeddingModel(config, train_iterator.vocab)
     model.cuda()
     opt = optim.Adam(model.parameters(), lr=config.lr)
     if args.resume_snapshot:
@@ -34,13 +34,13 @@ def main(args, config):
 
     writer = SummaryWriter(comment="_" + args.exp)
 
-    train(train_data, dev_data, iterator, model, config, opt, writer)
+    train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt, writer)
 
     writer.export_scalars_to_json("./all_scalars.json")
     writer.close()
 
 
-def train(train_data, dev_data, iterator, model, config, opt, writer):
+def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt, writer):
 
     logger.info(    model)
     # for name, param in model.named_parameters():
@@ -59,7 +59,7 @@ def train(train_data, dev_data, iterator, model, config, opt, writer):
         # train_iter.init_epoch()
         train_eval_stats = EvaluationStatistics(config)
         
-        for batch_index, batch in enumerate(iterator(train_data, cuda_device=args.gpu, num_epochs=1)):
+        for batch_index, batch in enumerate(train_iterator(train_data, cuda_device=args.gpu, num_epochs=1)):
             # Switch model to training mode, clear gradient accumulators
             model.train()
             opt.zero_grad()
@@ -86,7 +86,7 @@ def train(train_data, dev_data, iterator, model, config, opt, writer):
             if iterations % config.dev_every == 0:
                 model.eval()
                 dev_eval_stats = EvaluationStatistics(config)
-                for dev_batch_index, dev_batch in (enumerate(iterator(dev_data, cuda_device=args.gpu, num_epochs=1))):
+                for dev_batch_index, dev_batch in (enumerate(dev_iterator(dev_data, cuda_device=args.gpu, num_epochs=1))):
                     answer, loss, dev_output_dict = model(**dev_batch)
                     dev_eval_stats.update(loss, dev_output_dict)
 
@@ -113,7 +113,7 @@ def rescale_gradients(model, grad_norm):
 
 def save(config, model, loss, iterations, name):
     snapshot_prefix = os.path.join(config.save_path, name)
-    snapshot_path = snapshot_prefix + '_loss_{:.6f}_iter_{}_model.pt'.format(loss.data.item(), iterations)
+    snapshot_path = snapshot_prefix + '_loss_{:.6f}_iter_{}_model.pt'.format(loss.data[0], iterations)
     torch.save(model.state_dict(), snapshot_path)
     for f in glob.glob(snapshot_prefix + '*'):
         if f != snapshot_path:
@@ -135,7 +135,7 @@ class EvaluationStatistics:
         observed_probabilities = output_dict['observed_probabilities']
         sampled_probabilities = output_dict['sampled_probabilities']
         self.n_examples += observed_probabilities.size()[0]
-        self.loss += loss.data.item()
+        self.loss += loss.data[0]
         self.pos_pred += metrics.positive_predictions_for(observed_probabilities, self.threshold)
         self.neg_pred += metrics.positive_predictions_for(sampled_probabilities, self.threshold)
     

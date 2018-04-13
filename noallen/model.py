@@ -1,17 +1,16 @@
 import torch
 from typing import Dict
-from torch.nn import Module, Linear, Dropout, Sequential, Embedding
-from torch.nn.functional import logsigmoid, softmax
+from torch.nn import Module, Linear, Dropout, Sequential, Embedding, LogSigmoid
+from torch.nn.functional import sigmoid, logsigmoid, softmax
 from allennlp.nn.util import get_text_field_mask
 from noallen.representation import SpanRepresentation
-from torch.nn.init import xavier_normal_
+from torch.nn.init import xavier_normal
 from noallen.util import pretrained_embeddings_or_xavier
 
 class RelationalEmbeddingModel(Module):
     
     def __init__(self, config, vocab):
         super(RelationalEmbeddingModel, self).__init__()
-        self.to_tensors = lambda fields: ((field['tokens'], get_text_field_mask(field)) if isinstance(field, Dict) else field.squeeze(-1)for field in fields)
         self.vocab = vocab
         self.config = config
         if config.compositional_args:
@@ -33,7 +32,10 @@ class RelationalEmbeddingModel(Module):
         else:
             raise Exception('Unknown relation predictor: ' + config.relation_predictor)
         self.init()
-
+    
+    def to_tensors(self, fields):
+        return ((field['tokens'], get_text_field_mask(field)) if isinstance(field, Dict) else field.squeeze(-1) for field in fields)
+    
     def init(self):
         if isinstance(self.represent_arguments, Embedding):
             pretrained_embeddings_or_xavier(self.config, self.represent_arguments, self.vocab, self.config.argument_namespace)
@@ -42,8 +44,9 @@ class RelationalEmbeddingModel(Module):
             # pretrained_embeddings_or_xavier(self.config, self.represent_relations, self.vocab, self.config.relation_namespace)
     
     def get_output_metadata(self, predicted_relations, observed_relations, sampled_relations, output_dict):
-        observed_relation_probabilities = torch.sigmoid((predicted_relations * observed_relations).sum(-1))
-        sampled_relation_probabilities = torch.sigmoid((predicted_relations * sampled_relations).sum(-1))
+        #TODO we've already computed these values in the loss, no need to duplicate
+        observed_relation_probabilities = sigmoid((predicted_relations * observed_relations).sum(-1))
+        sampled_relation_probabilities = sigmoid((predicted_relations * sampled_relations).sum(-1))
         output_dict['observed_probabilities'] = observed_relation_probabilities
         output_dict['sampled_probabilities'] = sampled_relation_probabilities
         return output_dict
@@ -73,7 +76,8 @@ class MLP(Module):
     def __init__(self, config):
         super(MLP, self).__init__()
         self.dropout = Dropout(p=config.dropout)
-        self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), logsigmoid, self.dropout, Linear(config.d_args, config.d_rels))
+        self.logsigmoid = LogSigmoid()
+        self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.logsigmoid, self.dropout, Linear(config.d_args, config.d_rels))
     
     def forward(self, subjects, objects):
         return self.mlp(torch.cat([subjects, objects, subjects * objects], dim=-1))
