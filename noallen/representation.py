@@ -3,7 +3,7 @@ from torch.nn import Module, Linear, Dropout, Sequential, LSTM, Embedding
 from torch.nn.functional import softmax
 from allennlp.nn.util import masked_softmax
 from torch.autograd import Variable
-from torch.nn.init import xavier_normal_, constant_
+from torch.nn.init import xavier_normal, constant
 from noallen.util import pretrained_embeddings_or_xavier
 
 class SpanRepresentation(Module):
@@ -24,7 +24,7 @@ class SpanRepresentation(Module):
         self.init()
 
     def init(self):
-        [xavier_normal_(p) for p in self.parameters() if len(p.size()) > 1]
+        [xavier_normal(p) for p in self.parameters() if len(p.size()) > 1]
         pretrained_embeddings_or_xavier(self.config, self.embedding, self.vocab, self.vocab_namespace)
     
     def forward(self, inputs):
