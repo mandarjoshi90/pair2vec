@@ -23,6 +23,7 @@ def expand_instance_list(instance_list):
 
 def add_negative_samples(instance_list, positive_field_name, negative_field_name):
     instance_list = expand_instance_list(instance_list)
+    random.shuffle(instance_list)
     sampled_fields = [instance.fields[positive_field_name] for instance in instance_list]
     random.shuffle(sampled_fields)
     for instance, negative_field in zip(instance_list, sampled_fields):
