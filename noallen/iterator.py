@@ -2,6 +2,7 @@ from typing import Iterable, Dict, Iterator, Optional, List
 import logging
 import math
 import random
+import itertools
 
 from overrides import overrides
 
@@ -14,20 +15,15 @@ from allennlp.data.dataset import Batch
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 def expand_instance_list(instance_list):
-    new_list = []
-    for instance in instance_list:
-        count = instance.fields['metadata'].metadata['count']
-        for _ in range(count):
-            new_list.append(instance)
+    new_list = list(itertools.chain(*[[instance for _ in range(instance.fields['metadata'].metadata['count'])] for instance in instance_list]))
+    random.shuffle(new_list)
     return new_list
 
-def add_negative_samples(instance_list, positive_field_name, negative_field_name):
-    instance_list = expand_instance_list(instance_list)
-    sampled_fields = [instance.fields[positive_field_name] for instance in instance_list]
-    random.shuffle(sampled_fields)
-    for instance, negative_field in zip(instance_list, sampled_fields):
-        instance.fields[negative_field_name] = negative_field
-    return instance_list
+def add_negative_samples(instance_list):
+    instances = [(instance.fields['subjects'], instance.fields['objects'], instance.fields['observed_relations']) for instance in instance_list]
+    relations = [r for s, o, r in instances]
+    random.shuffle(relations)
+    return [Instance({'subjects': s, 'objects': o, 'observed_relations': pos_r, 'sampled_relations': neg_r}) for (s, o, pos_r), neg_r in zip(instances, relations)]
 
 
 @DataIterator.register("basic_sampling")
@@ -49,13 +45,9 @@ class BasicSamplingIterator(DataIterator):
         could be useful if your instances are read lazily from disk.
     """
     def __init__(self,
-                 positive_field_name: str,
-                 negative_field_name: str,
                  batch_size: int = 32,
                  instances_per_epoch: int = None,
                  max_instances_in_memory: int = None) -> None:
-        self._positive_field_name = positive_field_name
-        self._negative_field_name = negative_field_name
         self._batch_size = batch_size
         self._instances_per_epoch = instances_per_epoch
         self._max_instances_in_memory = max_instances_in_memory
@@ -147,13 +139,13 @@ class BasicSamplingIterator(DataIterator):
             if shuffle:
                 random.shuffle(instance_list)
             # modify instance_list to add negative samples
-            instance_list = add_negative_samples(instance_list, self._positive_field_name, self._negative_field_name)
+            instance_list = add_negative_samples(expand_instance_list(instance_list))
             iterator = iter(instance_list)
 
             # Then break each memory-sized list into batches.
             for batch_instances in lazy_groups_of(iterator, self._batch_size):
                 yield Batch(batch_instances)
-
+    
     @classmethod
     def from_params(cls, params: Params) -> 'BasicSamplingIterator':
         batch_size = params.pop_int('batch_size', 32)

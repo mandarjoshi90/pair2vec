@@ -102,26 +102,21 @@ def create_vocab(config, datasets):
     return vocab
 
 
-def get_iterator(config, vocab):
-    iterator = BasicSamplingIterator("observed_relations", "sampled_relations",
-                                     config.batch_size, max_instances_in_memory=config.chunk_size)
+def get_iterator(vocab, batch_size, chunk_size):
+    iterator = BasicSamplingIterator(batch_size, max_instances_in_memory=chunk_size)
     iterator.index_with(vocab)
     return iterator
 
 
 def read_data(config):
-    # if config.compositional_args:
-    #     raise NotImplementedError()
-    # if config.compositional_rels:
-    #     raise NotImplementedError()
-
     train, dev = create_dataset(config)
     vocab = create_vocab(config, [train, dev])
     config.n_args = vocab.get_vocab_size(config.argument_namespace)
     config.n_rels = vocab.get_vocab_size(config.relation_namespace)
 
-    iterator = get_iterator(config, vocab)
+    train_iterator = get_iterator(vocab, config.train_batch_size, config.chunk_size)
+    dev_iterator = get_iterator(vocab, config.dev_batch_size, config.chunk_size)
     # import ipdb
     # ipdb.set_trace()
 
-    return train, dev, iterator
+    return train, dev, train_iterator, dev_iterator
