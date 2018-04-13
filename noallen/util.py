@@ -115,6 +115,7 @@ def get_args():
     parser.add_argument('--config', type=str, default="experiments.conf")
     parser.add_argument('--save_path', type=str)
     parser.add_argument('--gpu', type=int, default=0)
+    parser.add_argument('--seed', type=int, default=45)
     parser.add_argument('--exp', type=str, default='multiplication')
     parser.add_argument('--resume_snapshot', type=str, default='')
     args = parser.parse_args()

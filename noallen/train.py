@@ -12,6 +12,7 @@ from noallen.data2 import read_data
 from noallen.util import get_args, get_config, makedirs
 from noallen import metrics
 from  noallen import util
+import numpy
 
 import logging
 from torch.optim.lr_scheduler import StepLR
@@ -29,6 +30,12 @@ def prepare_env(args, config):
     logger.addHandler(fh)
 
     # add seeds
+    seed = args.seed 
+    numpy.random.seed(seed)
+    torch.manual_seed(seed)
+    # Seed all GPUs with the same seed if available.
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 def main(args, config):
     prepare_env(args, config)
@@ -61,7 +68,7 @@ def train(train_data, dev_data, iterator, model, config, opt,  writer, checkpoin
 
     iterations = 0 if checkpoint is None else checkpoint['iterations']
     start_epoch = 0 if checkpoint is None else checkpoint['epoch']
-    scheduler = StepLR(opt, step_size=config.dev_every, gamma=0.9, last_epoch=iterations - 1)
+    scheduler = StepLR(opt, step_size=config.dev_every, gamma=0.9, last_epoch=iterations - 1    )
 
     logger.info('LR: {}'.format(scheduler.get_lr()))
     logger.info('    Time Epoch Iteration Progress    Loss     Dev_Loss     Train_Pos     Train_Neg     Dev_Pos     Dev_Neg')
