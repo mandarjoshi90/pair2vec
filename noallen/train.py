@@ -68,7 +68,7 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
 
     iterations = 0 if checkpoint is None else checkpoint['iterations']
     start_epoch = 0 if checkpoint is None else checkpoint['epoch']
-    scheduler = StepLR(opt, step_size=config.dev_every, gamma=0.9, last_epoch=iterations - 1    )
+    scheduler = StepLR(opt, step_size=1, gamma=0.9)
 
     logger.info('LR: {}'.format(scheduler.get_lr()))
     logger.info('    Time Epoch Iteration Progress    Loss     Dev_Loss     Train_Pos     Train_Neg     Dev_Pos     Dev_Neg')
@@ -76,6 +76,7 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
     dev_eval_stats = None
     for epoch in range(start_epoch, config.epochs):
         # train_iter.init_epoch()
+        scheduler.step()
         train_eval_stats = EvaluationStatistics(config)
         
         for batch_index, batch in enumerate(train_iterator(train_data, cuda_device=args.gpu, num_epochs=1)):
@@ -83,7 +84,6 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
             model.train()
             opt.zero_grad()
             iterations += 1
-            scheduler.step()
             
             # forward pass
             answer, loss, output_dict = model(**batch)
