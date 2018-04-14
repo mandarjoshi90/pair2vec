@@ -138,8 +138,14 @@ class BasicSamplingIterator(DataIterator):
         for instance_list in self._memory_sized_lists(instances):
             if shuffle:
                 random.shuffle(instance_list)
+            # index fields before duplication
+            for instance in instance_list:
+                instance.index_fields(self.vocab)
+                instance.get_padding_lengths()
             # modify instance_list to add negative samples
             instance_list = add_negative_samples(expand_instance_list(instance_list))
+            for instance in instance_list:
+                instance.indexed = True
             iterator = iter(instance_list)
 
             # Then break each memory-sized list into batches.
