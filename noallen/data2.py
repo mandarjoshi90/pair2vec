@@ -1,6 +1,8 @@
 from allennlp.data import DatasetReader, Vocabulary, Instance, Token
-from allennlp.data.fields import TextField, LabelField, MetadataField
+from allennlp.data.fields import LabelField, MetadataField
+from noallen.data import TextField
 from noallen.iterator import BasicSamplingIterator
+# from noallen.simple_iterator import BasicSamplingIterator
 from allennlp.data.token_indexers import SingleIdTokenIndexer
 from allennlp.common import Params
 from typing import Optional, Dict, Union, Sequence, Iterable
