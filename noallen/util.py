@@ -103,7 +103,7 @@ class Config:
         with open(path, 'w') as f:
             json.dump(self.__dict__, f, indent=4)
 
-def get_config(filename, exp_name, save_path):
+def get_config(filename, exp_name, save_path=None):
     config_dict = pyhocon.ConfigFactory.parse_file(filename)[exp_name]
     config = Config(**config_dict)
     if save_path is not None:
