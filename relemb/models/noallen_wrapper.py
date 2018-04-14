@@ -29,17 +29,22 @@ class NoAllenWrapper(Model):
         logger.info("|E| = {}, |R| = {}".format(vocab.get_vocab_size("tokens"), vocab.get_vocab_size("relation_labels")))
         # self.init()
 
-    def forward(self, subjects, objects, relations=None, metadata=None):
+    def forward(self, subjects, objects, observed_relations=None, sampled_relations=None, metadata=None):
         subjects, objects = self.noallen_model.to_tensors([subjects, objects])
         subject_embedding = self.noallen_model.represent_arguments(subjects)
         object_embedding = self.noallen_model.represent_arguments(objects)
 
-        if relations is None and isinstance(self.noallen_model.represent_relations, Embedding):
+        if isinstance(self.noallen_model.represent_relations, Embedding):
             relation_scores = torch.sigmoid(torch.mm(self.noallen_model.predict_relations(subject_embedding, object_embedding),
                                        self.noallen_model.represent_relations.weight.transpose(1, 0)))
             output_dict = {'relation_scores': relation_scores, "top_k": self._get_topk_relations(relation_scores)}
         else:
-            raise NotImplementedError()
+            relations = [r for r in self.noallen_model.to_tensors([observed_relations])][0]
+            relation_embedding = self.noallen_model.represent_relations(relations)
+            relation_scores = torch.sigmoid(torch.mm(self.noallen_model.predict_relations(subject_embedding, object_embedding), relation_embedding.transpose(0, 1)))
+            #if self._relation_representations is None:
+            #    self._relation_representations = self.noallen_model.represent_relations(
+            output_dict = {'relation_scores' : relation_scores}
         return output_dict
 
     def _get_topk_relations(self, relation_scores, k=15):

@@ -47,7 +47,8 @@ class DistMultRePredictor(Predictor):
         """
         subject = json_dict["subjects"]
         obj = json_dict["objects"]
+        relations = json_dict["relations"]
 
         results_dict: JsonDict = {"subjects": subject, "objects": obj}
-        instance = self._dataset_reader.text_to_instance(subject, obj)
+        instance = self._dataset_reader.text_to_instance(subject, obj, relations)
         return instance, results_dict
