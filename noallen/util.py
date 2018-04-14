@@ -6,6 +6,7 @@ import torch
 import os
 import logging
 import json
+import glob
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,10 @@ def save_checkpoint(config, model, optimizer, epoch, iterations, train_eval_stat
             'optimizer' : optimizer.state_dict(),
         }
     torch.save(state, snapshot_path)
+    for f in glob.glob(snapshot_prefix + '*'):
+        if f != snapshot_path:
+            os.remove(f)
+
 
 def pretrained_embeddings_or_xavier(config, embedding, vocab, namespace):
     pretrained_file = config.pretrained_file if hasattr(config, "pretrained_file") else None
