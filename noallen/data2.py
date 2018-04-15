@@ -51,7 +51,7 @@ class TripleReader(DatasetReader):
         fields = {}
         fields['subjects'] = self.get_field(subject, False)
         fields['objects'] = self.get_field(obj, False)
-        metadata = {"count": count}
+        metadata = {"count": count, "relation_phrases": relation}
         fields['metadata'] = MetadataField(metadata)
 
         if relation is not None:

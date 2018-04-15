@@ -66,7 +66,7 @@ def pretrained_embeddings_or_xavier(config, embedding, vocab, namespace):
         pretrained_embeddings(pretrained_file, embedding,
                                                  vocab, namespace)
     else:
-        xavier_normal_(embedding.weight.data)
+        xavier_normal(embedding.weight.data)
 
 def pretrained_embeddings(pretrained_file, embedding, vocab, namespace):
     weight = _read_pretrained_embedding_file(pretrained_file, embedding.embedding_dim,
