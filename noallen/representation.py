@@ -12,7 +12,6 @@ class SpanRepresentation(Module):
         super(SpanRepresentation, self).__init__()
         self.config = config
         self.vocab = vocab
-        #self.vocab_namespace = namespace
         n_input =  vocab_size
         self.embedding = Embedding(n_input, config.d_embed)
 

@@ -103,8 +103,6 @@ def create_dataset(config, fields):
 def vocab_from_instances(train_instances,
                     dev_instances,
                     common_vocab=True,
-                   min_count=None,
-                   max_vocab_size = None
                    ):
 
     arg_counter = Counter()
@@ -124,7 +122,7 @@ def create_vocab(config, datasets, fields):
     if os.path.exists(vocab_path):
         arg_counter, rel_counter = torch.load(vocab_path)
     else:
-        arg_counter, rel_counter = vocab_from_instances(datasets[0], datasets[1], max_vocab_size=max_vocab_size)
+        arg_counter, rel_counter = vocab_from_instances(datasets[0], datasets[1])
         torch.save((arg_counter, rel_counter), vocab_path)
     subject_field, object_field, relation_field = fields
     arg_specials = list(OrderedDict.fromkeys(tok for tok in [subject_field.unk_token, subject_field.pad_token, subject_field.init_token, subject_field.eos_token] if tok is not None))
@@ -136,8 +134,8 @@ def create_vocab(config, datasets, fields):
 
 
 def read_data(config):
-    args = Field(lower=True, tokenize='spacy', batch_first=True) if config.compositional_args else Field(batch_first=True)
-    rels = Field(lower=True, tokenize='spacy', batch_first=True) if config.compositional_rels else Field(batch_first=True)
+    args = Field(lower=True, batch_first=True) if config.compositional_args else Field(batch_first=True)
+    rels = Field(lower=True, batch_first=True) if config.compositional_rels else Field(batch_first=True)
     fields = [args, args, rels]
     train, dev = create_dataset(config, fields)
     create_vocab(config, [train, dev], fields)

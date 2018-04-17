@@ -44,7 +44,6 @@ class RelationalEmbeddingModel(Module):
             #pass #retrained_embeddings_or_xavier(self.config, self.represent_arguments, self.vocab, self.config.argument_namespace)
         if isinstance(self.represent_relations, Embedding):
             self.represent_relations.weight.data.copy_(self.rel_vocab.vectors())
-            #pass #xavier_normal_(self.represent_relations.weight.data)
             # pretrained_embeddings_or_xavier(self.config, self.represent_relations, self.vocab, self.config.relation_namespace)
     
     def get_output_metadata(self, predicted_relations, observed_relations, sampled_relations, output_dict):
