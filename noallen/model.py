@@ -39,7 +39,6 @@ class RelationalEmbeddingModel(Module):
         return ((field['tokens'], get_text_field_mask(field)) if isinstance(field, Dict) else (field, 1.0 - torch.eq(field, self.pad)) for field in fields)
     
     def init(self):
-        [xavier_normal(p) for p in self.parameters() if len(p.size()) > 1]
         if isinstance(self.represent_arguments, Embedding):
             self.represent_arguments.weight.data.copy_(self.arg_vocab.vectors())
             #pass #retrained_embeddings_or_xavier(self.config, self.represent_arguments, self.vocab, self.config.argument_namespace)
