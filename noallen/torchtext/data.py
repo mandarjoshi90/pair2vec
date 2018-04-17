@@ -79,15 +79,15 @@ def text_to_instance(subject, obj, relation, fields, count=1):
     sub = subject_field.preprocess(subject)
     obj = object_field.preprocess(obj)
     observed_rels = relation_field.preprocess(relation)
-    count = count
     return (sub, obj, observed_rels, count)
 
 def read(filename, fields, config):
+    has_count = hasattr(config, 'count_idx')
     with open(filename, encoding='utf-8') as f:
         for line_idx, line in enumerate(f):
             parts = line.strip().split('\t')
             parts = [part.strip() for part in parts]
-            count = int(parts[config.count_idx]) if hasattr(config, "count_idx") else 1
+            count = int(parts[config.count_idx]) if has_count else 1
             instance = text_to_instance(parts[config.sub_idx], parts[config.obj_idx], parts[config.rel_idx], fields, count)
             yield instance
             #if line_idx > 1000:
@@ -99,15 +99,6 @@ def create_dataset(config, fields):
     return train_data, validation_data
 
 
-def increment_count(sub, rel, obj, arg_counter, rel_counter):
-    arg_counter.update(sub + obj)
-    rel_counter.update(rel)
-    #for s in sub:
-    #    arg_counter[s] += 1
-    #for r in rel:
-    #    rel_counter[r] += 1
-    #for o in obj:
-    #    arg_counter[o] += 1
 
 def vocab_from_instances(train_instances,
                     dev_instances,
@@ -119,9 +110,11 @@ def vocab_from_instances(train_instances,
     arg_counter = Counter()
     rel_counter = arg_counter if common_vocab else Counter()
     for sub, obj, rel, _ in tqdm(train_instances):
-        increment_count(sub, rel, obj, arg_counter, rel_counter)
+        arg_counter.update(sub + obj)
+        rel_counter.update(rel)
     for sub, obj, rel, _ in tqdm(dev_instances):
-        increment_count(sub, rel, obj, arg_counter, rel_counter)
+        arg_counter.update(sub + obj)
+        rel_counter.update(rel)
     return arg_counter, rel_counter
 
 
@@ -131,14 +124,14 @@ def create_vocab(config, datasets, fields):
     if os.path.exists(vocab_path):
         arg_counter, rel_counter = torch.load(vocab_path)
     else:
-        max_vocab_size = config.max_vocab_size if hasattr(config, "max_vocab_size") else None
         arg_counter, rel_counter = vocab_from_instances(datasets[0], datasets[1], max_vocab_size=max_vocab_size)
         torch.save((arg_counter, rel_counter), vocab_path)
     subject_field, object_field, relation_field = fields
     arg_specials = list(OrderedDict.fromkeys(tok for tok in [subject_field.unk_token, subject_field.pad_token, subject_field.init_token, subject_field.eos_token] if tok is not None))
     rel_specials = list(OrderedDict.fromkeys(tok for tok in [relation_field.unk_token, relation_field.pad_token, relation_field.init_token, relation_field.eos_token] if tok is not None))
-    arg_vocab = Vocab(arg_counter, specials=arg_specials, vectors='glove.6B.200d', vectors_cache='/glove')
-    rel_vocab = Vocab(rel_counter, specials=rel_specials, vectors='glove.6B.200d', vectors_cache='/glove') if not common_vocab else arg_vocab
+    max_vocab_size = config.max_vocab_size if hasattr(config, "max_vocab_size") else None
+    arg_vocab = Vocab(arg_counter, specials=arg_specials, vectors='glove.6B.200d', vectors_cache='/glove', max_size=max_vocab_size)
+    rel_vocab = Vocab(rel_counter, specials=rel_specials, vectors='glove.6B.200d', vectors_cache='/glove', max_size=max_vocab_size) if not common_vocab else arg_vocab
     subject_field.vocab, object_field.vocab, relation_field.vocab = arg_vocab, arg_vocab, rel_vocab
 
 
