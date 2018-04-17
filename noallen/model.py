@@ -9,19 +9,21 @@ from noallen.util import pretrained_embeddings_or_xavier
 
 class RelationalEmbeddingModel(Module):
     
-    def __init__(self, config, vocab):
+    def __init__(self, config, arg_vocab, rel_vocab):
         super(RelationalEmbeddingModel, self).__init__()
-        self.vocab = vocab
         self.config = config
+        self.arg_vocab = arg_vocab
+        self.rel_vocab = rel_vocab
+        self.pad = arg_vocab.stoi['<pad>']
         if config.compositional_args:
-            self.represent_arguments = SpanRepresentation(config, config.d_args, vocab, config.argument_namespace)
+            self.represent_arguments = SpanRepresentation(config, config.d_args, config.n_args, arg_vocab)
         else:
             self.represent_arguments = Embedding(config.n_args, config.d_args)
         
         if config.compositional_rels:
-            self.represent_relations = SpanRepresentation(config, config.d_rels, vocab, config.relation_namespace)
+            self.represent_relations = SpanRepresentation(config, config.d_rels, config.n_rels, rel_vocab)
         else:
-            self.represent_relations = Embedding(vocab.get_vocab_size(config.relation_namespace), config.d_rels)
+            self.represent_relations = Embedding(config.n_rels, config.d_rels)
         
         if config.relation_predictor == 'multiplication':
             self.predict_relations = lambda x, y: x * y
@@ -34,13 +36,15 @@ class RelationalEmbeddingModel(Module):
         self.init()
     
     def to_tensors(self, fields):
-        return ((field['tokens'], get_text_field_mask(field)) if isinstance(field, Dict) else field.squeeze(-1) for field in fields)
+        return ((field['tokens'], get_text_field_mask(field)) if isinstance(field, Dict) else (field, torch.eq(field, self.pad)) for field in fields)
     
     def init(self):
         if isinstance(self.represent_arguments, Embedding):
-            pretrained_embeddings_or_xavier(self.config, self.represent_arguments, self.vocab, self.config.argument_namespace)
+            self.represent_arguments.weight.data.copy_(self.arg_vocab.vectors())
+            #pass #retrained_embeddings_or_xavier(self.config, self.represent_arguments, self.vocab, self.config.argument_namespace)
         if isinstance(self.represent_relations, Embedding):
-            xavier_normal_(self.represent_relations.weight.data)
+            self.represent_relations.weight.data.copy_(self.rel_vocab.vectors())
+            #pass #xavier_normal_(self.represent_relations.weight.data)
             # pretrained_embeddings_or_xavier(self.config, self.represent_relations, self.vocab, self.config.relation_namespace)
     
     def get_output_metadata(self, predicted_relations, observed_relations, sampled_relations, output_dict):
@@ -52,7 +56,8 @@ class RelationalEmbeddingModel(Module):
         return output_dict
 
 
-    def forward(self, subjects, objects, observed_relations=None, sampled_relations=None, metadata=None):
+    def forward(self, batch):
+        subjects, objects, observed_relations, sampled_relations = batch
         subjects, objects = self.to_tensors((subjects, objects))
         subjects = self.represent_arguments(subjects)
         objects = self.represent_arguments(objects)

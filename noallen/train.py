@@ -8,7 +8,7 @@ from torch.nn.utils import clip_grad_norm
 from tensorboardX import SummaryWriter
 
 from noallen.model import RelationalEmbeddingModel
-from noallen.data2 import read_data
+from noallen.torchtext.data import read_data
 from noallen.util import get_args, get_config, makedirs
 from noallen import metrics
 from  noallen import util
@@ -39,9 +39,9 @@ def prepare_env(args, config):
 
 def main(args, config):
     prepare_env(args, config)
-    train_data, dev_data, train_iterator, dev_iterator = read_data(config)
+    train_data, dev_data, train_iterator, dev_iterator, argsf, rels = read_data(config)
 
-    model = RelationalEmbeddingModel(config, train_iterator.vocab)
+    model = RelationalEmbeddingModel(config, argsf.vocab, rels.vocab)
     model.cuda()
     opt = optim.SGD(model.parameters(), lr=config.lr)
 
@@ -74,19 +74,23 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
     logger.info('    Time Epoch Iteration Progress    Loss     Dev_Loss     Train_Pos     Train_Neg     Dev_Pos     Dev_Neg')
 
     dev_eval_stats = None
+    #import ipdb
+    #ipdb.set_trace()
     for epoch in range(start_epoch, config.epochs):
         # train_iter.init_epoch()
         scheduler.step()
         train_eval_stats = EvaluationStatistics(config)
         
-        for batch_index, batch in enumerate(train_iterator(train_data, cuda_device=args.gpu, num_epochs=1)):
+        for batch_index, batch in enumerate(train_iterator(train_data, device=None, train=True)):
             # Switch model to training mode, clear gradient accumulators
             model.train()
             opt.zero_grad()
             iterations += 1
             
             # forward pass
-            answer, loss, output_dict = model(**batch)
+            #import ipdb
+            #ipdb.set_trace()
+            answer, loss, output_dict = model(batch)
             
             # backpropagate and update optimizer learning rate
             loss.backward()
@@ -106,8 +110,8 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
             if iterations % config.dev_every == 0:
                 model.eval()
                 dev_eval_stats = EvaluationStatistics(config)
-                for dev_batch_index, dev_batch in (enumerate(dev_iterator(dev_data, cuda_device=args.gpu, num_epochs=1))):
-                    answer, loss, dev_output_dict = model(**dev_batch)
+                for dev_batch_index, dev_batch in (enumerate(dev_iterator(dev_data, device=None, train=False))):
+                    answer, loss, dev_output_dict = model(dev_batch)
                     dev_eval_stats.update(loss, dev_output_dict)
 
                 stats_logger.log( epoch, iterations, batch_index, train_eval_stats, dev_eval_stats)

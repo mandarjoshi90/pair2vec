@@ -8,12 +8,12 @@ from noallen.util import pretrained_embeddings_or_xavier
 
 class SpanRepresentation(Module):
     
-    def __init__(self, config, d_output, vocab, namespace):
+    def __init__(self, config, d_output, vocab_size, vocab):
         super(SpanRepresentation, self).__init__()
         self.config = config
         self.vocab = vocab
-        self.vocab_namespace = namespace
-        n_input = vocab.get_vocab_size(namespace)
+        #self.vocab_namespace = namespace
+        n_input =  vocab_size
         self.embedding = Embedding(n_input, config.d_embed)
 
 
@@ -25,7 +25,8 @@ class SpanRepresentation(Module):
 
     def init(self):
         [xavier_normal(p) for p in self.parameters() if len(p.size()) > 1]
-        pretrained_embeddings_or_xavier(self.config, self.embedding, self.vocab, self.vocab_namespace)
+        self.embedding.weight.data.copy_(self.vocab.vectors)
+        #pretrained_embeddings_or_xavier(self.config, self.embedding, self.vocab, self.vocab_namespace)
     
     def forward(self, inputs):
         text, mask = inputs
