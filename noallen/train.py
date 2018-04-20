@@ -39,9 +39,9 @@ def prepare_env(args, config):
 
 def main(args, config):
     prepare_env(args, config)
-    train_data, dev_data, train_iterator, dev_iterator, argsf, rels = read_data(config)
+    train_data, dev_data, train_iterator, dev_iterator, args_field, rels_field = read_data(config, preindex=False)
 
-    model = RelationalEmbeddingModel(config, argsf.vocab, rels.vocab)
+    model = RelationalEmbeddingModel(config, args_field.vocab, rels_field.vocab)
     model.cuda()
     opt = optim.SGD(model.parameters(), lr=config.lr)
 
@@ -88,9 +88,9 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
             iterations += 1
             
             # forward pass
+            answer, loss, output_dict = model(batch)
             #import ipdb
             #ipdb.set_trace()
-            answer, loss, output_dict = model(batch)
             
             # backpropagate and update optimizer learning rate
             loss.backward()

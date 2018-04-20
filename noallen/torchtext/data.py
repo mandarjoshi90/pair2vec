@@ -9,7 +9,7 @@ import torch
 import itertools
 from itertools import islice
 from torchtext.vocab import Vocab
-from torchtext.data import Field
+from noallen.torchtext.indexed_field import Field
 import random
 
 class _LazyInstances(Iterable):
@@ -34,8 +34,14 @@ def lazy_groups_of(iterator: Iterator[A], group_size: int) -> Iterator[List[A]]:
     """
     return iter(lambda: list(islice(iterator, 0, group_size)), [])
 
-def expand_instance_list(instance_list):
-    new_list = list(itertools.chain(*[[(sub, obj, obs_rel) for _ in range(count)] for sub, obj, obs_rel, count in instance_list]))
+def expand_instance_list(instance_list, fields=None):
+    if fields is None:
+        new_list = list(itertools.chain(*[[(sub, obj, obs_rel) for _ in range(count)] for sub, obj, obs_rel, count in instance_list]))
+    else:
+        subject_field, object_field, relation_field, _ = fields
+        sub_list, obj_list, rel_list, count_list = zip(*instance_list)
+        sub_list, obj_list, rel_list = subject_field.index(list(sub_list)), object_field.index(list(obj_list)), relation_field.index(list(rel_list))
+        new_list = list(itertools.chain(*[[(sub, obj, obs_rel) for _ in range(int(count))] for sub, obj, obs_rel, count in zip(sub_list, obj_list, rel_list, count_list)]))
     random.shuffle(new_list)
     return new_list
 
@@ -45,11 +51,12 @@ def add_negative_samples(instance_list):
     return [(sub, obj, obs_rel, samp_rel) for (sub, obj, obs_rel), samp_rel in zip(instance_list, relations)]
 
 class BasicSamplingIterator():
-    def __init__(self, batch_size, chunk_size, fields):
+    def __init__(self, batch_size, chunk_size, fields, return_nl=False, preindex=True):
         self.batch_size = batch_size
         self.chunk_size = chunk_size
         self.fields = fields
-
+        self.return_nl = return_nl
+        self.preindex = preindex
     def __call__(self, data, device=-1, train=True):
         batches = self._create_batches(data, device, train)
         for batch in batches:
@@ -61,23 +68,26 @@ class BasicSamplingIterator():
     def _create_batches(self, instances, device=-1, train=True):
         for instance_list in self._memory_sized_lists(instances):
             # add negative sampling
-            instance_list = add_negative_samples(expand_instance_list(instance_list))
+            instance_list = add_negative_samples(expand_instance_list(instance_list, fields=self.fields if self.preindex else None))
             for batch_instances in lazy_groups_of(iter(instance_list), self.batch_size):
-                inputs = zip(*batch_instances)
-                yield self.to_tensors(inputs, device, train)
+                inputs = list(zip(*batch_instances))
+                tensors = self.to_tensors(inputs, device, train)
+                if self.return_nl:
+                    yield tensors, inputs
+                else:
+                    yield tensors
 
     def to_tensors(self, inputs, device=-1, train=True):
-        inputs = list(inputs)
         assert len(inputs) == len(self.fields)
-        tensors = [self.fields[i].process(inputs[i], device=device, train=train) for i in range(len(inputs))]
+        tensors = [self.fields[i].process(inputs[i], device=device, train=train, indexed=(self.preindex)) for i in range(len(inputs))]
         return tuple(tensors)
 
 
 
-def text_to_instance(subject, obj, relation, fields, count=1):
+def text_to_instance(subject, obj, relation, fields, count=1, max_seq_len=10):
     subject_field, object_field, relation_field = fields
-    sub = subject_field.preprocess(subject)
-    obj = object_field.preprocess(obj)
+    sub = subject_field.preprocess(subject)[:max_seq_len]
+    obj = object_field.preprocess(obj)[:max_seq_len]
     observed_rels = relation_field.preprocess(relation)
     return (sub, obj, observed_rels, count)
 
@@ -88,10 +98,12 @@ def read(filename, fields, config):
             parts = line.strip().split('\t')
             parts = [part.strip() for part in parts]
             count = int(parts[config.count_idx]) if has_count else 1
-            instance = text_to_instance(parts[config.sub_idx], parts[config.obj_idx], parts[config.rel_idx], fields, count)
-            yield instance
-            #if line_idx > 1000:
+            instance = text_to_instance(parts[config.sub_idx], parts[config.obj_idx], parts[config.rel_idx], fields, count, config.max_seq_len)
+            if any([len(f) > config.max_seq_len for f in instance[:-1]]):
+                continue
+            #if line_idx >= 10:
             #    break
+            yield instance
 
 def create_dataset(config, fields):
     train_data = _LazyInstances(lambda : iter(read(config.train_data_path, fields, config)))
@@ -133,7 +145,7 @@ def create_vocab(config, datasets, fields):
     subject_field.vocab, object_field.vocab, relation_field.vocab = arg_vocab, arg_vocab, rel_vocab
 
 
-def read_data(config):
+def read_data(config, return_nl=False, preindex=True):
     args = Field(lower=True, batch_first=True) if config.compositional_args else Field(batch_first=True)
     rels = Field(lower=True, batch_first=True) if config.compositional_rels else Field(batch_first=True)
     fields = [args, args, rels]
@@ -142,7 +154,7 @@ def read_data(config):
     config.n_args = len(args.vocab)
     config.n_rels = len(rels.vocab)
 
-    train_iterator = BasicSamplingIterator(config.train_batch_size, config.chunk_size, fields + [rels])
-    dev_iterator = BasicSamplingIterator(config.dev_batch_size, config.chunk_size, fields + [rels])
+    train_iterator = BasicSamplingIterator(config.train_batch_size, config.chunk_size, fields + [rels], return_nl=return_nl, preindex=preindex)
+    dev_iterator = BasicSamplingIterator(config.dev_batch_size, config.chunk_size, fields + [rels], return_nl=return_nl, preindex=preindex)
 
     return train, dev, train_iterator, dev_iterator, args, rels

@@ -8,11 +8,11 @@ from noallen.util import pretrained_embeddings_or_xavier
 
 class SpanRepresentation(Module):
     
-    def __init__(self, config, d_output, vocab_size, vocab):
+    def __init__(self, config, d_output, vocab):
         super(SpanRepresentation, self).__init__()
         self.config = config
         self.vocab = vocab
-        n_input =  vocab_size
+        n_input =  len(vocab)
         self.embedding = Embedding(n_input, config.d_embed)
 
 
