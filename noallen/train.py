@@ -39,7 +39,7 @@ def prepare_env(args, config):
 
 def main(args, config):
     prepare_env(args, config)
-    train_data, dev_data, train_iterator, dev_iterator, args_field, rels_field = read_data(config, preindex=False)
+    train_data, dev_data, train_iterator, dev_iterator, args_field, rels_field = read_data(config, preindex=True)
 
     model = RelationalEmbeddingModel(config, args_field.vocab, rels_field.vocab)
     model.cuda()

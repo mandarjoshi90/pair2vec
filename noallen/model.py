@@ -16,12 +16,12 @@ class RelationalEmbeddingModel(Module):
         self.rel_vocab = rel_vocab
         self.pad = arg_vocab.stoi['<pad>']
         if config.compositional_args:
-            self.represent_arguments = SpanRepresentation(config, config.d_args, config.n_args, arg_vocab)
+            self.represent_arguments = SpanRepresentation(config, config.d_args, arg_vocab)
         else:
             self.represent_arguments = Embedding(config.n_args, config.d_args)
         
         if config.compositional_rels:
-            self.represent_relations = SpanRepresentation(config, config.d_rels, config.n_rels, rel_vocab)
+            self.represent_relations = SpanRepresentation(config, config.d_rels, rel_vocab)
         else:
             self.represent_relations = Embedding(config.n_rels, config.d_rels)
         
@@ -50,6 +50,8 @@ class RelationalEmbeddingModel(Module):
         #TODO we've already computed these values in the loss, no need to duplicate
         observed_relation_probabilities = sigmoid((predicted_relations * observed_relations).sum(-1))
         sampled_relation_probabilities = sigmoid((predicted_relations * sampled_relations).sum(-1))
+        #import ipdb
+        #ipdb.set_trace()
         output_dict['observed_probabilities'] = observed_relation_probabilities
         output_dict['sampled_probabilities'] = sampled_relation_probabilities
         return output_dict
