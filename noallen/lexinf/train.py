@@ -25,6 +25,7 @@ class MLPClassifier(Module):
     def __init__(self, config, nclasses, arg_vocab, rel_vocab, input_dim):
         super(MLPClassifier, self).__init__()
         self.dropout = Dropout(config.dropout)
+        self.input_dim = input_dim
         self.classifier = Sequential(self.dropout, Linear(input_dim, config.d_args), ReLU(), self.dropout, Linear(config.d_args, nclasses))
         self.loss = NLLLoss()
         [xavier_normal(p) for p in self.parameters() if len(p.size()) > 1]
@@ -67,7 +68,7 @@ def get_lexinf_artifacts(config):
     glove.eval()
     glove.cuda()
     # end-task model
-    model = MLPClassifier(config, len(label_field.vocab), args_field.vocab, args_field.vocab, config.d_args*2 )
+    model = MLPClassifier(config, len(label_field.vocab), args_field.vocab, args_field.vocab, config.d_args *2 )
     model.cuda()
     opt = optim.SGD(model.parameters(), lr=config.lr)
     return model, train_data, dev_data, test_data, train_iter, dev_iter, test_iter, opt, label_field, relation_embedding_model, glove
@@ -110,6 +111,7 @@ def train(train_iterator, dev_iterator, test_iterator, model, config, opt, label
     dev_eval_stats = None
     labels = [label_field.vocab.itos[i] for i in range(len(label_field.vocab))]
     composition_fn = get_combined_embedding
+    possibly_copy = (lambda x : torch.cat((x,x), dim=-1)) if (composition_fn != get_combined_embedding and config.d_args * 2 == model.input_dim) else (lambda x : x)
 
     for epoch in range(start_epoch, config.epochs):
         #train_iterator.init_epoch()
@@ -123,7 +125,7 @@ def train(train_iterator, dev_iterator, test_iterator, model, config, opt, label
 
             # forward pass
             word1, word2, true_labels = batch.word1, batch.word2, batch.label
-            relation_embedding = composition_fn(word1, word2, glove, relation_embedding_model)
+            relation_embedding = possibly_copy(composition_fn(word1, word2, glove, relation_embedding_model))
             loss, output_dict = model(relation_embedding, true_labels)
 
             # backpropagate and update optimizer learning rate
@@ -147,7 +149,7 @@ def train(train_iterator, dev_iterator, test_iterator, model, config, opt, label
             #dev_iterator.init_epoch()
             for dev_batch_index, batch in enumerate(dev_iterator):
                 word1, word2, true_labels = batch.word1, batch.word2, batch.label
-                relation_embedding = composition_fn(word1, word2, glove, relation_embedding_model)
+                relation_embedding = possibly_copy(composition_fn(word1, word2, glove, relation_embedding_model))
                 loss, dev_output_dict = model(relation_embedding, true_labels)
                 dev_eval_stats.update(loss, dev_output_dict, true_labels.data.cpu().numpy().tolist())
 
@@ -170,7 +172,7 @@ def train(train_iterator, dev_iterator, test_iterator, model, config, opt, label
         test_eval_stats = EvaluationStatistics(config, labels)
         for test_batch_index, batch in enumerate(test_iterator):
             word1, word2, true_labels = batch.word1, batch.word2, batch.label
-            relation_embedding = composition_fn(word1, word2, glove, relation_embedding_model)
+            relation_embedding = possibly_copy(composition_fn(word1, word2, glove, relation_embedding_model))
             loss, output_dict = model(relation_embedding, true_labels)
             test_eval_stats.update(loss, output_dict, true_labels.data.cpu().numpy().tolist())
         logger.info(classification_report(test_eval_stats.true_labels, test_eval_stats.predicted_labels, target_names=test_eval_stats.str_labels))
