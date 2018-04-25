@@ -58,21 +58,30 @@ class RelationalEmbeddingModel(Module):
 
 
     def forward(self, batch):
-        subjects, objects, observed_relations, sampled_relations = batch
+        if len(batch) == 4:
+            batch = batch + (None, None)
+        subjects, objects, observed_relations, sampled_relations, sampled_subjects, sampled_objects = batch
         subjects, objects = self.to_tensors((subjects, objects))
         subjects = self.represent_arguments(subjects)
         objects = self.represent_arguments(objects)
         predicted_relations = self.predict_relations(subjects, objects)
 
         output_dict = {'predicted_relations': predicted_relations}
-        loss = None
-        if observed_relations is not None and sampled_relations is not None:
-            observed_relations, sampled_relations = self.to_tensors((observed_relations, sampled_relations))
-            observed_relations = self.represent_relations(observed_relations)
-            sampled_relations = self.represent_relations(sampled_relations)
-            positive_loss = -logsigmoid((predicted_relations * observed_relations).sum(-1)).sum()
-            negative_loss = -logsigmoid(-(predicted_relations * sampled_relations).sum(-1)).sum()
-            loss = positive_loss + negative_loss
+        # loss
+        observed_relations, sampled_relations = self.to_tensors((observed_relations, sampled_relations))
+        observed_relations = self.represent_relations(observed_relations)
+        sampled_relations = self.represent_relations(sampled_relations)
+        positive_loss = -logsigmoid((predicted_relations * observed_relations).sum(-1)).sum()
+        negative_loss = -logsigmoid(-(predicted_relations * sampled_relations).sum(-1)).sum()
+        # fake pair loss
+        if sampled_subjects is not None and sampled_objects is not None:
+            sampled_subjects, sampled_objects = self.to_tensors((sampled_subjects, sampled_objects))
+            sampled_subjects, sampled_objects = self.represent_arguments(sampled_subjects), self.represent_arguments(sampled_objects)
+            pred_relations_for_sampled_sub = self.predict_relations(sampled_subjects, objects)
+            pred_relations_for_sampled_obj = self.predict_relations(subjects, sampled_objects)
+            negative_loss +=  -logsigmoid(-(pred_relations_for_sampled_sub * observed_relations).sum(-1)).sum()
+            negative_loss +=  -logsigmoid(-(pred_relations_for_sampled_obj * observed_relations).sum(-1)).sum()
+        loss = positive_loss + negative_loss
         output_dict = self.get_output_metadata(predicted_relations, observed_relations, sampled_relations, output_dict)
         return predicted_relations, loss, output_dict
     

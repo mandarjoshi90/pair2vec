@@ -1,4 +1,5 @@
 import torch
+import numpy
 from torch.nn import Module, Sequential, Softmax, Dropout, ReLU, NLLLoss, Linear, LogSoftmax, Embedding
 from noallen.model import RelationalEmbeddingModel
 from noallen.util import resume_from, get_args, get_config
@@ -27,6 +28,7 @@ class MLPClassifier(Module):
         self.dropout = Dropout(config.dropout)
         self.input_dim = input_dim
         self.classifier = Sequential(self.dropout, Linear(input_dim, config.d_args), ReLU(), self.dropout, Linear(config.d_args, nclasses))
+        #self.classifier = Sequential(self.dropout, Linear(config.d_args, nclasses))
         self.loss = NLLLoss()
         [xavier_normal(p) for p in self.parameters() if len(p.size()) > 1]
 
@@ -48,32 +50,46 @@ def get_lexinf_artifacts(config):
     args_field = Field(lower=True, batch_first=True)
     arg_specials = list(OrderedDict.fromkeys(tok for tok in [args_field.unk_token, args_field.pad_token, args_field.init_token, args_field.eos_token] if tok is not None))
     arg_counter, rel_counter = torch.load(config.vocab_path)
+
+    # data
     args_field.vocab = Vocab(arg_counter, specials=arg_specials, vectors='glove.6B.200d', vectors_cache='/glove', max_size=config.max_vocab_size)
     train_data = TabularDataset(path=config.train_data_path, format='tsv', fields = [('word1', args_field), ('word2', args_field), ('label', label_field)])
     dev_data = TabularDataset(path=config.dev_data_path, format='tsv', fields = [('word1', args_field), ('word2', args_field), ('label', label_field)])
     test_data = TabularDataset(path=config.test_data_path, format='tsv', fields = [('word1', args_field), ('word2', args_field), ('label', label_field)]) if hasattr(config, 'test_data_path') else None
     label_field.build_vocab(train_data, dev_data)
+
+    # iter
     train_iter = Iterator(train_data, train=True, shuffle=True, repeat=False, batch_size=config.train_batch_size)
     dev_iter = Iterator(dev_data, train=False, shuffle=True, repeat=False, sort=False, batch_size=config.dev_batch_size)
     test_iter = Iterator(test_data, train=False, shuffle=True, repeat=False, sort=False, batch_size=config.dev_batch_size) if test_data is not None else None
+
     # relemb model
     relation_embedding_model = RelationalEmbeddingModel(config, args_field.vocab, args_field.vocab)
     resume_from(config.model_file, relation_embedding_model, None)
     relation_embedding_model.eval()
     relation_embedding_model.cuda()
+
     # glove
-    args_field.vocab.load_vectors(vectors='glove.6B.100d', cache='/glove')
-    glove = Embedding(len(args_field.vocab), 100)
+    args_field.vocab.load_vectors(vectors='glove.6B.200d', cache='/glove')
+    glove = Embedding(len(args_field.vocab),200)
     glove.weight.data.copy_(args_field.vocab.vectors)
     glove.eval()
     glove.cuda()
+
     # end-task model
-    model = MLPClassifier(config, len(label_field.vocab), args_field.vocab, args_field.vocab, config.d_args *2 )
+    model = MLPClassifier(config, len(label_field.vocab), args_field.vocab, args_field.vocab, config.d_args )
     model.cuda()
     opt = optim.SGD(model.parameters(), lr=config.lr)
     return model, train_data, dev_data, test_data, train_iter, dev_iter, test_iter, opt, label_field, relation_embedding_model, glove
 
 def main(config):
+    # add seeds
+    seed = 555
+    numpy.random.seed(seed)
+    torch.manual_seed(seed)
+    # Seed all GPUs with the same seed if available.
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
     model, train_data, dev_data, test_data, train_iterator, dev_iterator, test_iterator, opt, label_field, relation_embedding_model, glove = get_lexinf_artifacts(config)
     train(train_iterator, dev_iterator,test_iterator,  model, config, opt, label_field, relation_embedding_model, glove)
 
@@ -110,8 +126,9 @@ def train(train_iterator, dev_iterator, test_iterator, model, config, opt, label
 
     dev_eval_stats = None
     labels = [label_field.vocab.itos[i] for i in range(len(label_field.vocab))]
-    composition_fn = get_combined_embedding
-    possibly_copy = (lambda x : torch.cat((x,x), dim=-1)) if (composition_fn != get_combined_embedding and config.d_args * 2 == model.input_dim) else (lambda x : x)
+    composition_fn = get_relation_embedding
+    possibly_copy = (lambda x : torch.cat((x,x), dim=-1)) if (composition_fn != get_combined_embedding and glove.embedding_dim * 4 == model.input_dim) else (lambda x : x)
+    logger.info('Composition: {}, Copy: {}'.format(composition_fn, possibly_copy))
 
     for epoch in range(start_epoch, config.epochs):
         #train_iterator.init_epoch()
@@ -164,8 +181,8 @@ def train(train_iterator, dev_iterator, test_iterator, model, config, opt, label
 
         logger.info('LR: {}'.format(scheduler.get_lr()))
     logger.info("Best dev accuracy: {}".format(best_dev_accuracy))
-    logger.info(classification_report(train_eval_stats.true_labels, train_eval_stats.predicted_labels, target_names=train_eval_stats.str_labels))
-    logger.info(classification_report(best_dev_stats.true_labels, best_dev_stats.predicted_labels, target_names=best_dev_stats.str_labels))
+    logger.info(classification_report(train_eval_stats.true_labels, train_eval_stats.predicted_labels, target_names=train_eval_stats.str_labels, digits=4))
+    logger.info(classification_report(best_dev_stats.true_labels, best_dev_stats.predicted_labels, target_names=best_dev_stats.str_labels, digits=4))
     model.load_state_dict(best_model)
     model.eval()
     if hasattr(config, 'test_data_path'):
@@ -175,7 +192,7 @@ def train(train_iterator, dev_iterator, test_iterator, model, config, opt, label
             relation_embedding = possibly_copy(composition_fn(word1, word2, glove, relation_embedding_model))
             loss, output_dict = model(relation_embedding, true_labels)
             test_eval_stats.update(loss, output_dict, true_labels.data.cpu().numpy().tolist())
-        logger.info(classification_report(test_eval_stats.true_labels, test_eval_stats.predicted_labels, target_names=test_eval_stats.str_labels))
+        logger.info(classification_report(test_eval_stats.true_labels, test_eval_stats.predicted_labels, target_names=test_eval_stats.str_labels, digits=4))
 
     
 
