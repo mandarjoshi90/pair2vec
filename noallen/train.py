@@ -8,7 +8,8 @@ from torch.nn.utils import clip_grad_norm
 from tensorboardX import SummaryWriter
 
 from noallen.model import RelationalEmbeddingModel
-from noallen.torchtext.data import read_data
+#from noallen.torchtext.data import read_data
+from noallen.torchtext.matrix_data import read_data
 from noallen.util import get_args, get_config, makedirs
 from noallen import metrics
 from  noallen import util

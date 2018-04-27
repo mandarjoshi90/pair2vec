@@ -36,14 +36,24 @@ class RelationalEmbeddingModel(Module):
         self.init()
     
     def to_tensors(self, fields):
-        return ((field['tokens'], get_text_field_mask(field)) if isinstance(field, Dict) else (field, 1.0 - torch.eq(field, self.pad)) for field in fields)
+        if isinstance(fields, Dict):
+            return (field['tokens'], get_text_field_mask(field)) 
+        else:
+            return  ((field, 1.0 - torch.eq(field, self.pad)) if len(field.size()) > 1 else field for field in fields)
     
     def init(self):
         if isinstance(self.represent_arguments, Embedding):
-            self.represent_arguments.weight.data.copy_(self.arg_vocab.vectors())
+            if self.arg_vocab.vectors is not None:
+                self.represent_arguments.weight.data.copy_(self.arg_vocab.vectors)
+            else:
+                xavier_normal(self.represent_arguments.weight.data)
             #pass #retrained_embeddings_or_xavier(self.config, self.represent_arguments, self.vocab, self.config.argument_namespace)
         if isinstance(self.represent_relations, Embedding):
-            self.represent_relations.weight.data.copy_(self.rel_vocab.vectors())
+            if self.rel_vocab.vectors is not None:
+                self.represent_relations.weight.data.copy_(self.rel_vocab.vectors)
+            else:
+                xavier_normal(self.represent_relations.weight.data)
+
             # pretrained_embeddings_or_xavier(self.config, self.represent_relations, self.vocab, self.config.relation_namespace)
     
     def get_output_metadata(self, predicted_relations, observed_relations, sampled_relations, output_dict):
@@ -79,8 +89,8 @@ class RelationalEmbeddingModel(Module):
             sampled_subjects, sampled_objects = self.represent_arguments(sampled_subjects), self.represent_arguments(sampled_objects)
             pred_relations_for_sampled_sub = self.predict_relations(sampled_subjects, objects)
             pred_relations_for_sampled_obj = self.predict_relations(subjects, sampled_objects)
-            negative_loss +=  -logsigmoid(-(pred_relations_for_sampled_sub * observed_relations).sum(-1)).sum()
-            negative_loss +=  -logsigmoid(-(pred_relations_for_sampled_obj * observed_relations).sum(-1)).sum()
+            negative_loss +=  0.1 * -logsigmoid(-(pred_relations_for_sampled_sub * observed_relations).sum(-1)).sum()
+            negative_loss +=  0.1 * -logsigmoid(-(pred_relations_for_sampled_obj * observed_relations).sum(-1)).sum()
         loss = positive_loss + negative_loss
         output_dict = self.get_output_metadata(predicted_relations, observed_relations, sampled_relations, output_dict)
         return predicted_relations, loss, output_dict
