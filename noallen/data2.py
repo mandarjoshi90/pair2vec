@@ -18,8 +18,8 @@ from allennlp.data.vocabulary import DEFAULT_NON_PADDED_NAMESPACES
 class TripleReader(DatasetReader):
     def __init__(self, config):
         super().__init__(lazy=True)
-        config.relation_namespace = 'tokens' if config.compositional_rels else "relation_labels"
-        config.argument_namespace = 'tokens' if config.compositional_args else "arg_labels"
+        config.relation_namespace = 'tokens' #if config.compositional_rels else "relation_labels"
+        config.argument_namespace = 'tokens' #if config.compositional_args else "arg_labels"
         self.config = config
 
         self._token_indexers = {'tokens': SingleIdTokenIndexer()}
@@ -34,8 +34,7 @@ class TripleReader(DatasetReader):
                                                                                                      label_namespace='relation_labels')
         else:
             return TextField(self._get_tokens(string),
-                             self._token_indexers) if self.config.compositional_args else LabelField(string,
-                                                                                                     label_namespace='arg_labels')
+                             self._token_indexers) #if self.config.compositional_args else LabelField(string,                                                                    label_namespace='arg_labels')
     def _read(self, filename: str):
         with open(filename, encoding='utf-8') as f:
             for line_idx, line in enumerate(f):

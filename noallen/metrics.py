@@ -4,7 +4,8 @@ from torch.autograd import Variable
 
 
 def positive_predictions_for(predicted_probs, threshold=0.5):
-    return sum(torch.gt(predicted_probs.data, threshold).cpu().numpy().tolist())
+    #return sum(torch.gt(predicted_probs.data, threshold).cpu().numpy().tolist())
+    return (torch.gt(predicted_probs.data, threshold).float().sum()[0])
 
 def mrr(predictions, gold_labels, all_true, candidates=None):
     reciprocal_ranks = []

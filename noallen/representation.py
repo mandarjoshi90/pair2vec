@@ -24,7 +24,11 @@ class SpanRepresentation(Module):
 
     def init(self):
         [xavier_normal(p) for p in self.parameters() if len(p.size()) > 1]
-        self.embedding.weight.data.copy_(self.vocab.vectors)
+        if self.vocab.vectors is not None:
+            self.embedding.weight.data.copy_(self.vocab.vectors)
+        else:
+            xavier_normal(self.embedding.weight.data)
+
         #pretrained_embeddings_or_xavier(self.config, self.embedding, self.vocab, self.vocab_namespace)
     
     def forward(self, inputs):

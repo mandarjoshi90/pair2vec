@@ -16,7 +16,7 @@ from  noallen import util
 import numpy
 
 import logging
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
 
 format = '%(asctime)s - %(levelname)s - %(name)s - %(message)s'
 logging.basicConfig(format=format, level=logging.INFO)
@@ -49,6 +49,7 @@ def main(args, config):
     checkpoint = None
     if args.resume_snapshot:
         checkpoint = util.resume_from(args.resume_snapshot, model, opt)
+    #opt = optim.SGD(model.parameters(), lr=config.lr)
 
     writer = SummaryWriter(comment="_" + args.exp)
 
@@ -57,6 +58,11 @@ def main(args, config):
     writer.export_scalars_to_json("./all_scalars.json")
     writer.close()
 
+def get_lr(optimizer):
+    lr=[]
+    for param_group in optimizer.param_groups:
+       lr +=[ param_group['lr'] ]
+    return lr
 
 def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt, writer, checkpoint=None):
 
@@ -69,9 +75,10 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
 
     iterations = 0 if checkpoint is None else checkpoint['iterations']
     start_epoch = 0 if checkpoint is None else checkpoint['epoch']
-    scheduler = StepLR(opt, step_size=1, gamma=0.9)
+    #scheduler = StepLR(opt, step_size=1, gamma=0.9)
+    scheduler = ReduceLROnPlateau(opt, mode='min', factor=0.85, patience=7, verbose=True, threshold=0.005)
 
-    logger.info('LR: {}'.format(scheduler.get_lr()))
+    logger.info('LR: {}'.format(get_lr(opt)))
     logger.info('    Time Epoch Iteration Progress    Loss     Dev_Loss     Train_Pos     Train_Neg     Dev_Pos     Dev_Neg')
 
     dev_eval_stats = None
@@ -79,7 +86,6 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
     #ipdb.set_trace()
     for epoch in range(start_epoch, config.epochs):
         # train_iter.init_epoch()
-        scheduler.step()
         train_eval_stats = EvaluationStatistics(config)
         
         for batch_index, batch in enumerate(train_iterator(train_data, device=None, train=True)):
@@ -90,8 +96,6 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
             
             # forward pass
             answer, loss, output_dict = model(batch)
-            #import ipdb
-            #ipdb.set_trace()
             
             # backpropagate and update optimizer learning rate
             loss.backward()
@@ -103,9 +107,6 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
             # aggregate training error
             train_eval_stats.update(loss, output_dict)
             
-            # checkpoint model periodically
-            if iterations % config.save_every == 0:
-                save(config, model, loss, iterations, 'snapshot')
         
             # evaluate performance on validation set periodically
             if iterations % config.dev_every == 0:
@@ -115,6 +116,7 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
                     answer, loss, dev_output_dict = model(dev_batch)
                     dev_eval_stats.update(loss, dev_output_dict)
 
+                scheduler.step(dev_eval_stats.average()[0])
                 stats_logger.log( epoch, iterations, batch_index, train_eval_stats, dev_eval_stats)
                 stats_logger.epoch_log(epoch, iterations, train_eval_stats, dev_eval_stats)
                 
@@ -126,7 +128,7 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
 
                 # reset train stats
                 train_eval_stats = EvaluationStatistics(config)
-                logger.info('LR: {}'.format(scheduler.get_lr()))
+                logger.info('LR: {}'.format(get_lr(opt)))
         
             elif iterations % config.log_every == 0:
                 stats_logger.log( epoch, iterations, batch_index, train_eval_stats, dev_eval_stats)
