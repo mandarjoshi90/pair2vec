@@ -33,7 +33,7 @@ class SpanRepresentation(Module):
     
     def forward(self, inputs):
         text, mask = inputs
-        text = self.embedding(text)
+        text = self.dropout(self.embedding(text))
         text = self.contextualizer(text)
         weights = masked_softmax(self.head_attention(text).squeeze(-1), mask.float())
         representation = (weights.unsqueeze(2) * self.head_transform(text)).sum(dim=1)

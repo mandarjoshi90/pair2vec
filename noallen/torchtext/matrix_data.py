@@ -87,8 +87,9 @@ def create_vocab(config, field):
         tokens = text.rstrip().split('\n')
     # specials = list(OrderedDict.fromkeys(tok for tok in [field.unk_token, field.pad_token, field.init_token, field.eos_token] if tok is not None))
     specials = ['<unk>', '<pad>', '<X>', '<Y>']
-    #vocab = Vocab(tokens, specials=specials, vectors='glove.6B.200d', vectors_cache='/glove')
-    vocab = Vocab(tokens, specials=specials)
+    vocab = Vocab(tokens, specials=specials, vectors='glove.6B.300d', vectors_cache='/glove')
+    #vocab = Vocab(tokens, specials=specials, vectors='fasttext.en.300d', vectors_cache='/fasttext')
+    #vocab = Vocab(tokens, specials=specials)
     field.vocab  = vocab
 
 def read(filenames):
@@ -111,7 +112,7 @@ def create_dataset(config):
     triplet_dir = config.triplet_dir
     #files = [os.path.join(config.triplet_dir, fname) for fname in os.listdir(config.triplet_dir) if fname.endswith('.npy')]
     files = [os.path.join(config.triplet_dir, 'triplets_' + str(i) + '.npy') for i in range(1, 1000)]
-    train_data = _LazyInstances(lambda : iter(read(files[4:])))
+    train_data = _LazyInstances(lambda : iter(read(files[1:])))
     validation_sample = read_dev(files[0], 500000)
     validation_data = _LazyInstances(lambda : iter (dev_data(validation_sample)))
     return train_data, validation_data

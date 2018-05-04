@@ -49,7 +49,6 @@ def main(args, config):
     checkpoint = None
     if args.resume_snapshot:
         checkpoint = util.resume_from(args.resume_snapshot, model, opt)
-    #opt = optim.SGD(model.parameters(), lr=config.lr)
 
     writer = SummaryWriter(comment="_" + args.exp)
 
@@ -76,7 +75,7 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
     iterations = 0 if checkpoint is None else checkpoint['iterations']
     start_epoch = 0 if checkpoint is None else checkpoint['epoch']
     #scheduler = StepLR(opt, step_size=1, gamma=0.9)
-    scheduler = ReduceLROnPlateau(opt, mode='min', factor=0.85, patience=7, verbose=True, threshold=0.005)
+    scheduler = ReduceLROnPlateau(opt, mode='min', factor=0.9, patience=10, verbose=True, threshold=0.001)
 
     logger.info('LR: {}'.format(get_lr(opt)))
     logger.info('    Time Epoch Iteration Progress    Loss     Dev_Loss     Train_Pos     Train_Neg     Dev_Pos     Dev_Neg')
@@ -116,7 +115,7 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
                     answer, loss, dev_output_dict = model(dev_batch)
                     dev_eval_stats.update(loss, dev_output_dict)
 
-                scheduler.step(dev_eval_stats.average()[0])
+                scheduler.step(train_eval_stats.average()[0])
                 stats_logger.log( epoch, iterations, batch_index, train_eval_stats, dev_eval_stats)
                 stats_logger.epoch_log(epoch, iterations, train_eval_stats, dev_eval_stats)
                 

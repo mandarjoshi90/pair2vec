@@ -1,6 +1,6 @@
 import torch
 from typing import Dict
-from torch.nn import Module, Linear, Dropout, Sequential, Embedding, LogSigmoid
+from torch.nn import Module, Linear, Dropout, Sequential, Embedding, LogSigmoid, ReLU
 from torch.nn.functional import sigmoid, logsigmoid, softmax
 from allennlp.nn.util import get_text_field_mask
 from noallen.representation import SpanRepresentation
@@ -98,8 +98,9 @@ class MLP(Module):
     def __init__(self, config):
         super(MLP, self).__init__()
         self.dropout = Dropout(p=config.dropout)
-        self.logsigmoid = LogSigmoid()
-        self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.logsigmoid, self.dropout, Linear(config.d_args, config.d_rels))
+        self.nonlinearity  = ReLU()
+        #self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.logsigmoid, self.dropout, Linear(config.d_args, config.d_rels))
+        self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
     
     def forward(self, subjects, objects):
         return self.mlp(torch.cat([subjects, objects, subjects * objects], dim=-1))
