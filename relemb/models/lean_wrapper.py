@@ -15,8 +15,9 @@ from torch.nn import Embedding
 from noallen.util import load_model, get_config
 from allennlp.nn.util import get_text_field_mask
 import os
-from torchtext.vocab import Vocab
-
+from noallen.torchtext.vocab import Vocab
+from noallen.torchtext.matrix_data import create_vocab
+from noallen.torchtext.indexed_field import Field
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
@@ -28,11 +29,15 @@ class LeanWrapper(Model):
                  sampled_relations_file,
                  pretrained_file: str) -> None:
         super(LeanWrapper, self).__init__(vocab, None)
-        vocab_path = os.path.join(config.save_path, "vocabulary.pth")
-        arg_counter, rel_counter = torch.load(vocab_path)
+        #vocab_path = os.path.join(config.save_path, "vocabulary.pth")
+        #arg_counter, rel_counter = torch.load(vocab_path)
         #specials = list(OrderedDict.fromkeys(tok for tok in [subject_field.unk_token, subject_field.pad_token, subject_field.init_token, subject_field.eos_token] if tok is not None))
-        arg_vocab = Vocab(arg_counter, specials=['<unk>', '<pad>'], vectors='glove.6B.200d', vectors_cache='/glove', max_size=config.max_vocab_size)
+        #arg_vocab = Vocab(arg_counter, specials=['<unk>', '<pad>'], vectors='glove.6B.200d', vectors_cache='/glove', max_size=config.max_vocab_size)
+        field = Field(batch_first=True)
+        create_vocab(config, field)
+        arg_vocab = field.vocab
         rel_vocab = arg_vocab
+        config.n_args = len(arg_vocab)
 
         self.noallen_model = RelationalEmbeddingModel(config, arg_vocab, rel_vocab)
         load_model(pretrained_file, self.noallen_model)
@@ -46,10 +51,11 @@ class LeanWrapper(Model):
     def forward(self, subjects, objects, observed_relations=None, metadata=None):
         #import ipdb
         #ipdb.set_trace()
-        subject_mask, object_mask = get_text_field_mask(subjects),  get_text_field_mask(objects)
-        subjects, objects = subjects['tokens'] + (1 - subject_mask.long()) , objects['tokens'] + (1 - object_mask.long()) 
+        subjects, objects = (subjects['tokens'] ).squeeze(-1), (objects['tokens'] ).squeeze(-1)
+        #subject_mask, object_mask = get_text_field_mask(subjects),  get_text_field_mask(objects)
+        #subjects, objects = subjects['tokens'] + (1 - subject_mask.long()) , objects['tokens'] + (1 - object_mask.long()) 
 
-        subjects, objects = self.noallen_model.to_tensors([subjects, objects])
+        #subjects, objects = self.noallen_model.to_tensors([subjects, objects])
         subject_embedding = self.noallen_model.represent_arguments(subjects)
         object_embedding = self.noallen_model.represent_arguments(objects)
 
@@ -61,6 +67,8 @@ class LeanWrapper(Model):
             mask = get_text_field_mask(observed_relations)
             observed_relations = observed_relations['tokens'] + (1 - mask.long()) 
             relations = [r for r in self.noallen_model.to_tensors([observed_relations])][0]
+            #import ipdb
+            #ipdb.set_trace()
             relation_embedding = self.noallen_model.represent_relations(relations)
             relation_scores = torch.sigmoid(torch.mm(self.noallen_model.predict_relations(subject_embedding, object_embedding), relation_embedding.transpose(0, 1)))
 
@@ -96,7 +104,7 @@ class LeanWrapper(Model):
             top, top_rels = [], set()
             j = 0
             while len(top_rels) < k and j < 3*k:
-                relation_name = ' '.join(self._sampled_rel_phrases[int(indices[i,j])])
+                relation_name = ''.join(self._sampled_rel_phrases[int(indices[i,j])]).replace('<pad>', '').strip().replace('<', '(').replace('>', ')')
                 score = float(values[i, j])
                 if relation_name not in top_rels:
                     top.append([relation_name, score])

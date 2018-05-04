@@ -98,6 +98,19 @@ class ModifiedDecomposableAttention(Model):
         token_vectors = embedder(tensor)
         return token_vectors
 
+    # tokens : bs, sl
+    def get_argument_rep(self, tokens):
+        batch_size, seq_len = tokens.size()
+        argument_embedding = self.relem.represent_arguments(tokens.view(-1, 1)).view(batch_size, seq_len, -1)
+        return argument_embedding
+
+    def get_relation_embedding(self, seq1, seq2):
+        (batch_size, sl1, dim), (_, sl2, _) = seq1.size(),seq2.size()
+        seq1 = seq1.unsqeeze(2).expand(batch_size, sl1, sl2, dim).view(-1, dim)
+        seq2 = seq2.unsqueeze(1).expand(batch_size, sl1, sl2, dim).view(-1, dim)
+        relation_embedding = self.relemb.predict_relations(seq1, seq2).view(batch_size, sl1, sl2, dim)
+        return relation_embedding
+
 
     def forward(self,  # type: ignore
                 premise: Dict[str, torch.LongTensor],
@@ -142,8 +155,12 @@ class ModifiedDecomposableAttention(Model):
         embedded_premise = self.get_embedding("tokens", premise)
         embedded_hypothesis = self.get_embedding("tokens", hypothesis)
 
-        relemb_premise = self.get_embedding("relemb_tokens", premise)
-        relemb_hypothesis = self.get_embedding("relemb_tokens", hypothesis)
+        premise_as_args = self.get_argument_rep(premise['tokens'])
+        hypothesis_as_args = self.get_argument_rep(hypothesis['tokens'])
+
+        p2h_relations = self.get_relation_matrix(premise_as_args, hypothesis_as_args)
+        h2p_relations = self.get_relation_matrix(hypothesis_as_args, premise_as_args)
+
 
         premise_mask = get_text_field_mask(premise).float()
         hypothesis_mask = get_text_field_mask(hypothesis).float()
@@ -164,14 +181,16 @@ class ModifiedDecomposableAttention(Model):
         p2h_attention = last_dim_softmax(similarity_matrix, hypothesis_mask)
         # Shape: (batch_size, premise_length, embedding_dim)
         attended_hypothesis = weighted_sum(embedded_hypothesis, p2h_attention)
+        attented_hypothesis_relations = weighted_sum(p2h_relations, p2h_attention)
 
         # Shape: (batch_size, hypothesis_length, premise_length)
         h2p_attention = last_dim_softmax(similarity_matrix.transpose(1, 2).contiguous(), premise_mask)
         # Shape: (batch_size, hypothesis_length, embedding_dim)
         attended_premise = weighted_sum(embedded_premise, h2p_attention)
+        attented_premise_relations = weighted_sum(h2p_relations, h2p_attention)
 
-        premise_compare_input = torch.cat([embedded_premise, attended_hypothesis], dim=-1)
-        hypothesis_compare_input = torch.cat([embedded_hypothesis, attended_premise], dim=-1)
+        premise_compare_input = torch.cat([embedded_premise, attended_hypothesis, attented_hypothesis_relations], dim=-1)
+        hypothesis_compare_input = torch.cat([embedded_hypothesis, attended_premise, attended_premise_relations], dim=-1)
 
         compared_premise = self._compare_feedforward(premise_compare_input)
         compared_premise = compared_premise * premise_mask.unsqueeze(-1)
