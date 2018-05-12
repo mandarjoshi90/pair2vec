@@ -45,15 +45,18 @@ class RelationalEmbeddingModel(Module):
     def init(self):
         if isinstance(self.represent_arguments, Embedding):
             if self.arg_vocab.vectors is not None:
-                self.represent_arguments.weight.data.copy_(self.arg_vocab.vectors)
+                pretrained = self.arg_vocab.vectors
+                self.represent_arguments.weight.data[:, :pretrained.size(1)].copy_(pretrained)
             else:
-                xavier_normal(self.represent_arguments.weight.data)
+                #xavier_normal(self.represent_arguments.weight.data)
+                self.represent_arguments.reset_parameters()
             #pass #retrained_embeddings_or_xavier(self.config, self.represent_arguments, self.vocab, self.config.argument_namespace)
         if isinstance(self.represent_relations, Embedding):
             if self.rel_vocab.vectors is not None:
                 self.represent_relations.weight.data.copy_(self.rel_vocab.vectors) #.repeat(3,1))
             else:
-                xavier_normal(self.represent_relations.weight.data)
+                #xavier_normal(self.represent_relations.weight.data)
+                self.represent_relations.reset_parameters()
 
             # pretrained_embeddings_or_xavier(self.config, self.represent_relations, self.vocab, self.config.relation_namespace)
     
@@ -99,10 +102,13 @@ class MLP(Module):
         super(MLP, self).__init__()
         self.dropout = Dropout(p=config.dropout)
         self.nonlinearity  = ReLU()
-        #self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.logsigmoid, self.dropout, Linear(config.d_args, config.d_rels))
+        #self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
         self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
+        #self.mlp = Sequential(self.dropout, Linear(4 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
+        #self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout,  Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
     
     def forward(self, subjects, objects):
+        #return self.mlp(torch.cat([subjects, objects, subjects * objects, subjects - objects], dim=-1))
         return self.mlp(torch.cat([subjects, objects, subjects * objects], dim=-1))
 
 
@@ -118,5 +124,7 @@ class GatedInterpolation(Module):
         self.sum_transform = Sequential(self.dropout, Linear(config.d_args, config.d_rels))
     
     def forward(self, subjects, objects):
-        subject_gate, object_gate = softmax(torch.cat([self.subject_gate(subjects).unsqueeze(-1), self.object_gate(objects).unsqueeze(-1)]), dim=-1).unbind(dim=-1)
-        return self.sum_transform(subject_gate * self.subject_transform(subjects) + object_gate * self.object_transform(objects))
+        gates = softmax(torch.stack([self.subject_gate(subjects), self.object_gate(objects)], -1), dim=-1)
+        #import ipdb
+        #ipdb.set_trace()
+        return self.sum_transform((gates * torch.stack((self.subject_transform(subjects), self.object_transform(objects)), -1)).sum(-1))

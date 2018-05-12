@@ -1,10 +1,11 @@
 import torch
-from torch.nn import Module, Linear, Dropout, Sequential, LSTM, Embedding
+from torch.nn import Module, Linear, Dropout, Sequential, LSTM, Embedding, GRU
 from torch.nn.functional import softmax
 from allennlp.nn.util import masked_softmax
 from torch.autograd import Variable
 from torch.nn.init import xavier_normal, constant
 from noallen.util import pretrained_embeddings_or_xavier
+from noallen.cuda_functional import SRU, SRUCell
 
 class SpanRepresentation(Module):
     
@@ -27,7 +28,8 @@ class SpanRepresentation(Module):
         if self.vocab.vectors is not None:
             self.embedding.weight.data.copy_(self.vocab.vectors)
         else:
-            xavier_normal(self.embedding.weight.data)
+            #xavier_normal(self.embedding.weight.data)
+            self.embedding.reset_parameters()
 
         #pretrained_embeddings_or_xavier(self.config, self.embedding, self.vocab, self.vocab_namespace)
     
@@ -49,8 +51,9 @@ class LSTMContextualizer(Module):
     
     def forward(self, inputs):
         inputs = inputs.permute(1, 0, 2)
-        batch_size = inputs.size()[1]
-        state_shape = self.config.n_lstm_layers * 2, batch_size, self.config.d_lstm_hidden
-        h0 = c0 = Variable(inputs.data.new(*state_shape).zero_())
-        outputs, (ht, ct) = self.rnn(inputs, (h0, c0))  # outputs: [seq_len, batch, hidden * 2]
+        #batch_size = inputs.size()[1]
+        #state_shape = self.config.n_lstm_layers * 2, batch_size, self.config.d_lstm_hidden
+        #h0 = c0 = Variable(inputs.data.new(*state_shape).zero_())
+        #outputs, (ht, ct) = self.rnn(inputs )  # outputs: [seq_len, batch, hidden * 2]
+        outputs, _ = self.rnn(inputs )  # outputs: [seq_len, batch, hidden * 2]
         return outputs.permute(1, 0, 2)

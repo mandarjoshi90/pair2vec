@@ -11,6 +11,11 @@ from allennlp.modules import Seq2SeqEncoder, SimilarityFunction, TimeDistributed
 from allennlp.nn import InitializerApplicator, RegularizerApplicator
 from allennlp.nn.util import get_text_field_mask, last_dim_softmax, weighted_sum
 from allennlp.training.metrics import CategoricalAccuracy
+from noallen.torchtext.vocab import Vocab
+from noallen.torchtext.matrix_data import create_vocab
+from noallen.torchtext.indexed_field import Field
+from noallen.util import load_model, get_config
+from noallen.model import RelationalEmbeddingModel
 
 
 @Model.register("modified_dat")
@@ -61,6 +66,8 @@ class ModifiedDecomposableAttention(Model):
         If provided, will be used to calculate the regularization penalty during training.
     """
     def __init__(self, vocab: Vocabulary,
+                 relemb_config,
+                 relemb_model_file: str,
                  text_field_embedder: TextFieldEmbedder,
                  attend_feedforward: FeedForward,
                  similarity_function: SimilarityFunction,
@@ -71,6 +78,14 @@ class ModifiedDecomposableAttention(Model):
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
         super(ModifiedDecomposableAttention, self).__init__(vocab, regularizer)
+        field = Field(batch_first=True)
+        create_vocab(relemb_config, field)
+        arg_vocab = field.vocab
+        rel_vocab = arg_vocab
+        relemb_config.n_args = len(arg_vocab)
+
+        self.relemb = RelationalEmbeddingModel(relemb_config, arg_vocab, rel_vocab)
+        load_model(relemb_model_file, self.relemb)
 
         self._text_field_embedder = text_field_embedder
         self._attend_feedforward = TimeDistributed(attend_feedforward)
@@ -101,14 +116,15 @@ class ModifiedDecomposableAttention(Model):
     # tokens : bs, sl
     def get_argument_rep(self, tokens):
         batch_size, seq_len = tokens.size()
-        argument_embedding = self.relem.represent_arguments(tokens.view(-1, 1)).view(batch_size, seq_len, -1)
+        argument_embedding = self.relemb.represent_arguments(tokens.view(-1, 1)).view(batch_size, seq_len, -1)
         return argument_embedding
+
 
     def get_relation_embedding(self, seq1, seq2):
         (batch_size, sl1, dim), (_, sl2, _) = seq1.size(),seq2.size()
-        seq1 = seq1.unsqeeze(2).expand(batch_size, sl1, sl2, dim).view(-1, dim)
-        seq2 = seq2.unsqueeze(1).expand(batch_size, sl1, sl2, dim).view(-1, dim)
-        relation_embedding = self.relemb.predict_relations(seq1, seq2).view(batch_size, sl1, sl2, dim)
+        seq1 = seq1.unsqueeze(2).expand(batch_size, sl1, sl2, dim).contiguous().view(-1, dim)
+        seq2 = seq2.unsqueeze(1).expand(batch_size, sl1, sl2, dim).contiguous().view(-1, dim)
+        relation_embedding = self.relemb.predict_relations(seq1, seq2).contiguous().view(batch_size, sl1, sl2, dim)
         return relation_embedding
 
 
@@ -155,11 +171,11 @@ class ModifiedDecomposableAttention(Model):
         embedded_premise = self.get_embedding("tokens", premise)
         embedded_hypothesis = self.get_embedding("tokens", hypothesis)
 
-        premise_as_args = self.get_argument_rep(premise['tokens'])
-        hypothesis_as_args = self.get_argument_rep(hypothesis['tokens'])
+        premise_as_args = self.get_argument_rep(premise['relemb_tokens'])
+        hypothesis_as_args = self.get_argument_rep(hypothesis['relemb_tokens'])
 
-        p2h_relations = self.get_relation_matrix(premise_as_args, hypothesis_as_args)
-        h2p_relations = self.get_relation_matrix(hypothesis_as_args, premise_as_args)
+        p2h_relations = self.get_relation_embedding(premise_as_args, hypothesis_as_args)
+        h2p_relations = self.get_relation_embedding(hypothesis_as_args, premise_as_args)
 
 
         premise_mask = get_text_field_mask(premise).float()
@@ -169,27 +185,27 @@ class ModifiedDecomposableAttention(Model):
             embedded_premise = self._premise_encoder(embedded_premise, premise_mask)
         if self._hypothesis_encoder:
             embedded_hypothesis = self._hypothesis_encoder(embedded_hypothesis, hypothesis_mask)
-
         projected_premise = self._attend_feedforward(embedded_premise)
         projected_hypothesis = self._attend_feedforward(embedded_hypothesis)
         # Shape: (batch_size, premise_length, hypothesis_length)
         # import ipdb
         # ipdb.set_trace()
-        similarity_matrix = self._matrix_attention(torch.cat((projected_premise, relemb_premise), -1), torch.cat((projected_hypothesis, relemb_hypothesis), -1))
+        similarity_matrix = self._matrix_attention(projected_premise, projected_hypothesis)
+        #similarity_matrix = self._matrix_attention(torch.cat((projected_premise, relemb_premise), -1), torch.cat((projected_hypothesis, relemb_hypothesis), -1))
 
         # Shape: (batch_size, premise_length, hypothesis_length)
         p2h_attention = last_dim_softmax(similarity_matrix, hypothesis_mask)
         # Shape: (batch_size, premise_length, embedding_dim)
         attended_hypothesis = weighted_sum(embedded_hypothesis, p2h_attention)
-        attented_hypothesis_relations = weighted_sum(p2h_relations, p2h_attention)
+        attended_hypothesis_relations = weighted_sum(p2h_relations, p2h_attention)
 
         # Shape: (batch_size, hypothesis_length, premise_length)
         h2p_attention = last_dim_softmax(similarity_matrix.transpose(1, 2).contiguous(), premise_mask)
         # Shape: (batch_size, hypothesis_length, embedding_dim)
         attended_premise = weighted_sum(embedded_premise, h2p_attention)
-        attented_premise_relations = weighted_sum(h2p_relations, h2p_attention)
+        attended_premise_relations = weighted_sum(h2p_relations, h2p_attention)
 
-        premise_compare_input = torch.cat([embedded_premise, attended_hypothesis, attented_hypothesis_relations], dim=-1)
+        premise_compare_input = torch.cat([embedded_premise, attended_hypothesis, attended_hypothesis_relations], dim=-1)
         hypothesis_compare_input = torch.cat([embedded_hypothesis, attended_premise, attended_premise_relations], dim=-1)
 
         compared_premise = self._compare_feedforward(premise_compare_input)
@@ -243,9 +259,13 @@ class ModifiedDecomposableAttention(Model):
         aggregate_feedforward = FeedForward.from_params(params.pop('aggregate_feedforward'))
         initializer = InitializerApplicator.from_params(params.pop('initializer', []))
         regularizer = RegularizerApplicator.from_params(params.pop('regularizer', []))
+        pretrained_file = params.pop('model_file')
+        relemb_config = get_config(params.pop('config_file'), params.pop('experiment', 'multiplication'))
 
         params.assert_empty(cls.__name__)
         return cls(vocab=vocab,
+                   relemb_config=relemb_config,
+                   relemb_model_file=pretrained_file,
                    text_field_embedder=text_field_embedder,
                    attend_feedforward=attend_feedforward,
                    similarity_function=similarity_function,

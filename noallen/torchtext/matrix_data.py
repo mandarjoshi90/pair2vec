@@ -87,8 +87,8 @@ def create_vocab(config, field):
         tokens = text.rstrip().split('\n')
     # specials = list(OrderedDict.fromkeys(tok for tok in [field.unk_token, field.pad_token, field.init_token, field.eos_token] if tok is not None))
     specials = ['<unk>', '<pad>', '<X>', '<Y>']
-    vocab = Vocab(tokens, specials=specials, vectors='glove.6B.300d', vectors_cache='/glove')
-    #vocab = Vocab(tokens, specials=specials, vectors='fasttext.en.300d', vectors_cache='/fasttext')
+    #vocab = Vocab(tokens, specials=specials, vectors='glove.6B.300d', vectors_cache='/glove')
+    vocab = Vocab(tokens, specials=specials, vectors='fasttext.en.300d', vectors_cache='/fasttext')
     #vocab = Vocab(tokens, specials=specials)
     field.vocab  = vocab
 

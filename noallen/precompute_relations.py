@@ -57,7 +57,7 @@ def dump(config, snapshot_file, relation_emb_file, txt_vocab_file):
         relation_phrases_list += [(relation_phrases[i]) for i in
                                      range(len(relation_phrases))]
         # break
-        if batch_num > 1000:
+        if batch_num > 900:
             break
     torch.save((relation_embeddings_list, relation_phrases_list), relation_emb_file)
     vocabulary = [rels_field.vocab.itos[index] for index in range(len(rels_field.vocab))]

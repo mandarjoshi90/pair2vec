@@ -39,6 +39,12 @@ from allennlp.commands.subcommand import Subcommand
 from allennlp.common import Params
 from allennlp.models.model import Model
 from allennlp.data import Instance
+from allennlp.data.dataset_readers.dataset_reader import DatasetReader
+from allennlp.common.util import prepare_environment, prepare_global_logging
+from allennlp.data import Vocabulary
+from copy import deepcopy
+import json
+from allennlp.models.archival import archive_model, CONFIG_NAME
 if os.environ.get("ALLENNLP_DEBUG"):
     LEVEL = logging.DEBUG
 else:
@@ -169,6 +175,7 @@ def create_serialization_dir(params: Params, serialization_dir: str, recover: bo
         If ``True``, we will try to recover from an existing serialization directory, and crash if
         the directory doesn't exist, or doesn't match the configuration we're given.
     """
+    """
     if os.path.exists(serialization_dir):
         if serialization_dir == '/output':
             # Special-casing the beaker output directory, which will already exist when training
@@ -214,7 +221,7 @@ def create_serialization_dir(params: Params, serialization_dir: str, recover: bo
             raise ConfigurationError(f"--recover specified but serialization_dir ({serialization_dir}) "
                                      "does not exist.  There is nothing to recover from.")
         os.makedirs(serialization_dir)
-
+    """
 
 def train_model(params: Params,
                 serialization_dir: str,

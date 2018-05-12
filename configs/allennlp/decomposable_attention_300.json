@@ -15,24 +15,24 @@
       "end_tokens": ["@@NULL@@"]
     }
   },
-  "train_data_path": "/home/mandar90/data/mnli/multinli_1.0_train.jsonl",
-  "validation_data_path": "/home/mandar90/data/mnli/multinli_1.0_dev_mismatched.jsonl",
-//  "train_data_path": "/home/mandar90/workspace/allennlp/tests/fixtures/data/snli.jsonl",
-//  "validation_data_path": "/home/mandar90/workspace/allennlp/tests/fixtures/data/snli.jsonl",
+  //"train_data_path": "/home/mandar90/data/mnli/multinli_1.0_train.jsonl",
+//  "validation_data_path": "/home/mandar90/data/mnli/multinli_1.0_dev_mismatched.jsonl",
+  "train_data_path": "/home/mandar90/workspace/allennlp/tests/fixtures/data/snli.jsonl",
+  "validation_data_path": "/home/mandar90/workspace/allennlp/tests/fixtures/data/snli.jsonl",
   "model": {
-    "type": "decomposable_attention",
+    "type": "modified_dat",
     "text_field_embedder": {
       "tokens": {
         "type": "embedding",
         "projection_dim": 200,
-        "pretrained_file": "/glove/glove.840B.300d.txt.gz",
+ //       "pretrained_file": "/glove/glove.840B.300d.txt.gz",
         "embedding_dim": 300,
         "trainable": false
       },
       "relemb_tokens": {
         "type": "embedding",
         "embedding_dim": 300,
-        "pretrained_file": "/home/mandar90/data/models/conceptnet_nd/embeddings.gz",
+  //      "pretrained_file": "/home/mandar90/data/models/conceptnet_nd/embeddings.gz",
 //        "pretrained_file": "/glove/glove.840B.300d.txt.gz",
         "trainable": false
       }

@@ -25,6 +25,7 @@
   "sub_idx": 0,
   "rel_idx": 2,
   "obj_idx": 1,
+  "sample_arguments": true,
  // "count_idx": 3,
   "max_seq_len": 10,
   "max_vocab_size": 150000,
