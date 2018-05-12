@@ -86,6 +86,9 @@ class ModifiedDecomposableAttention(Model):
 
         self.relemb = RelationalEmbeddingModel(relemb_config, arg_vocab, rel_vocab)
         load_model(relemb_model_file, self.relemb)
+        for param in self.relemb.parameters():
+            param.requires_grad = False
+        self.relemb.represent_relations = None
 
         self._text_field_embedder = text_field_embedder
         self._attend_feedforward = TimeDistributed(attend_feedforward)
@@ -188,8 +191,8 @@ class ModifiedDecomposableAttention(Model):
         projected_premise = self._attend_feedforward(embedded_premise)
         projected_hypothesis = self._attend_feedforward(embedded_hypothesis)
         # Shape: (batch_size, premise_length, hypothesis_length)
-        # import ipdb
-        # ipdb.set_trace()
+        #import ipdb
+        #ipdb.set_trace()
         similarity_matrix = self._matrix_attention(projected_premise, projected_hypothesis)
         #similarity_matrix = self._matrix_attention(torch.cat((projected_premise, relemb_premise), -1), torch.cat((projected_hypothesis, relemb_hypothesis), -1))
 
