@@ -1,6 +1,6 @@
 {
     "dataset_reader": {
-        "type": "nli_relemb",
+        "type": "snli",
         "token_indexers": {
             "tokens": {
                 "type": "single_id",
@@ -19,30 +19,27 @@
             ]
         }
     },
-//    "train_data_path": "/home/mandar90/workspace/allennlp/tests/fixtures/data/snli.jsonl",
-//    "validation_data_path": "/home/mandar90/workspace/allennlp/tests/fixtures/data/snli.jsonl",
-    "train_data_path": "/home/mandar90/data/mnli/multinli_1.0_train.jsonl",
-    "validation_data_path": "/home/mandar90/data/mnli/multinli_1.0_dev_mismatched.jsonl",
-    "vocabulary":{
-        "directory_path": "models/dat1/vocabulary"
-    }
+//    "train_data_path": "data/mnli/snli.jsonl",
+//    "validation_data_path": "data/mnli/snli.jsonl",
+    "train_data_path": "data/mnli/multinli_1.0_train.jsonl",
+    "validation_data_path": "data/mnli/multinli_1.0_dev_mismatched.jsonl",
+//    "vocabulary":{
+//        "directory_path": "models/dropout_vanilla_dam/vocabulary"
+//    }
     "model": {
         "type": "modified_dat",
-        "config_file": "/sdb/data/models/smoothed_fasttext_300/wiki_words.json",
-"model_file": "/sdb/data/models/smoothed_fasttext_300/demo.pt",
+        "config_file": "models/smoothed_fasttext_300/wiki_words.json",
+"model_file": "models/smoothed_fasttext_300/demo.pt",
+        "dropout": 0.2,
+        "add_relemb": false,
         "text_field_embedder": {
             "tokens": {
                 "type": "embedding",
                 "projection_dim": 200,
-                "pretrained_file": "/glove/glove.6B.300d.txt.gz",
+                "pretrained_file": "data/glove/glove.6B.300d.txt.gz",
                 "embedding_dim": 300,
                 "trainable": false
             },
-            "relemb_tokens": {
-                "type": "embedding",
-                "embedding_dim": 300,
-                "trainable": false
-            }
         },
         "attend_feedforward": {
             "input_dim": 200,
@@ -55,7 +52,7 @@
             "type": "dot_product",
         },
         "compare_feedforward": {
-            "input_dim": 700,
+            "input_dim": 400,
             "num_layers": 2,
             "hidden_dims": 200,
             "activations": "relu",
@@ -115,11 +112,5 @@
         "optimizer": {
             "type": "adagrad"
         },
-        "learning_rate_scheduler": {
-            "type": "reduce_on_plateau",
-            "factor": 0.5,
-            "mode": "max",
-            "patience": 2
-        }
     }
 }
