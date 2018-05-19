@@ -66,7 +66,7 @@ class ModifiedDecomposableAttention(Model):
         If provided, will be used to calculate the regularization penalty during training.
     """
     def __init__(self, vocab: Vocabulary,
-                 add_relemb: bool,
+                 ablation_type: str,
                  relemb_config,
                  relemb_model_file: str,
                  text_field_embedder: TextFieldEmbedder,
@@ -75,15 +75,13 @@ class ModifiedDecomposableAttention(Model):
                  compare_feedforward: FeedForward,
                  aggregate_feedforward: FeedForward,
                  dropout: float,
-                 pool_relations:bool,
                  premise_encoder: Optional[Seq2SeqEncoder] = None,
                  hypothesis_encoder: Optional[Seq2SeqEncoder] = None,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
         super(ModifiedDecomposableAttention, self).__init__(vocab, regularizer)
-        self.add_relemb = add_relemb
-        self._pool_relations = pool_relations
-        if add_relemb:
+        self._ablation_type = ablation_type
+        if ablation_type == 'attn_over_args' or ablation_type == 'attn_over_rels':
             field = Field(batch_first=True)
             create_vocab(relemb_config, field)
             arg_vocab = field.vocab
@@ -179,6 +177,8 @@ class ModifiedDecomposableAttention(Model):
             embedded_premise = self._dropout(self._premise_encoder(embedded_premise, premise_mask))
         if self._hypothesis_encoder:
             embedded_hypothesis = self._dropout(self._hypothesis_encoder(embedded_hypothesis, hypothesis_mask))
+        embedded_premise = embedded_premise * premise_mask.float().unsqueeze(-1)
+        embedded_hypothesis = embedded_hypothesis * hypothesis_mask.float().unsqueeze(-1)
         projected_premise = self._attend_feedforward(embedded_premise)
         projected_hypothesis = self._attend_feedforward(embedded_hypothesis)
         # Shape: (batch_size, premise_length, hypothesis_length)
@@ -196,13 +196,24 @@ class ModifiedDecomposableAttention(Model):
         # Shape: (batch_size, hypothesis_length, embedding_dim)
         attended_premise = weighted_sum(embedded_premise, h2p_attention)
 
-        if self.add_relemb:
+        if self._ablation_type == 'fasttext':
+            relemb_premise_mask = 1 - (torch.eq(premise['relemb_tokens'], 0).long() + torch.eq(premise['relemb_tokens'], 1).long())
+            relemb_hypothesis_mask = 1 - (torch.eq(hypothesis['relemb_tokens'], 0).long() + torch.eq(hypothesis['relemb_tokens'], 1).long())
+            fasttext_premise = self._dropout(self.get_embedding('relemb_tokens', premise))
+            fasttext_hypothesis = self._dropout(self.get_embedding('relemb_tokens', hypothesis))
+            attended_ft_hypothesis = weighted_sum(fasttext_hypothesis, p2h_attention) * relemb_premise_mask.float().unsqueeze(-1)
+            attended_ft_premise = weighted_sum(fasttext_premise, h2p_attention) * relemb_hypothesis_mask.float().unsqueeze(-1)
+            premise_compare_input = (torch.cat([embedded_premise, attended_hypothesis, attended_ft_hypothesis], dim=-1))
+            hypothesis_compare_input = (torch.cat([embedded_hypothesis, attended_premise, attended_ft_premise], dim=-1))
+        elif self._ablation_type  == 'attn_over_rels' or self._ablation_type == 'attn_over_args':
+            relemb_premise_mask = 1 - (torch.eq(premise['relemb_tokens'], 0).long() + torch.eq(premise['relemb_tokens'], 1).long())
+            relemb_hypothesis_mask = 1 - (torch.eq(hypothesis['relemb_tokens'], 0).long() + torch.eq(hypothesis['relemb_tokens'], 1).long())
             premise_as_args = self.get_argument_rep(premise['relemb_tokens'])
             hypothesis_as_args = self.get_argument_rep(hypothesis['relemb_tokens'])
             batch_size, premise_len, dim = premise_as_args.size()
             batch_size, hypothesis_len, _ = hypothesis_as_args.size()
 
-            if self._pool_relations:
+            if self._ablation_type  == 'attn_over_rels':
                 p2h_relations = self._dropout(self.get_relation_embedding(premise_as_args, hypothesis_as_args))
                 h2p_relations = self._dropout(self.get_relation_embedding(hypothesis_as_args, premise_as_args))
 
@@ -214,6 +225,8 @@ class ModifiedDecomposableAttention(Model):
                 flat_premise, flat_hypothesis = premise_as_args.contiguous().view(-1, dim), hypothesis_as_args.contiguous().view(-1, dim)
                 attended_hypothesis_relations = self._dropout(self.relemb.predict_relations(flat_premise, attended_hypothesis_args)).contiguous().view(batch_size, premise_len, -1)
                 attended_premise_relations = self._dropout(self.relemb.predict_relations(flat_hypothesis, attended_premise_args)).contiguous().view(batch_size, hypothesis_len, -1)
+            attended_hypothesis_relations = attended_hypothesis_relations * relemb_premise_mask.float().unsqueeze(-1)
+            attended_premise_relations = attended_premise_relations * relemb_hypothesis_mask.float().unsqueeze(-1)
 
             premise_compare_input = (torch.cat([embedded_premise, attended_hypothesis, attended_hypothesis_relations], dim=-1))
             hypothesis_compare_input = (torch.cat([embedded_hypothesis, attended_premise, attended_premise_relations], dim=-1))
@@ -222,14 +235,15 @@ class ModifiedDecomposableAttention(Model):
             hypothesis_compare_input = (torch.cat([embedded_hypothesis, attended_premise], dim=-1))
 
         compared_premise = self._compare_feedforward(premise_compare_input)
-        compared_premise = compared_premise * premise_mask.unsqueeze(-1)
         # Shape: (batch_size, compare_dim)
         compared_premise = compared_premise.sum(dim=1)
 
         compared_hypothesis = self._compare_feedforward(hypothesis_compare_input)
-        compared_hypothesis = compared_hypothesis * hypothesis_mask.unsqueeze(-1)
         # Shape: (batch_size, compare_dim)
         compared_hypothesis = compared_hypothesis.sum(dim=1)
+        #if self._ablation_type == 'vanilla':
+        #    compared_premise = compared_premise * premise_mask.unsqueeze(-1)
+        #    compared_hypothesis = compared_hypothesis * hypothesis_mask.unsqueeze(-1)
 
         aggregate_input = (torch.cat([compared_premise, compared_hypothesis], dim=-1))
         label_logits = self._aggregate_feedforward(aggregate_input)
@@ -254,7 +268,6 @@ class ModifiedDecomposableAttention(Model):
         embedder_params = params.pop("text_field_embedder")
         text_field_embedder = TextFieldEmbedder.from_params(vocab, embedder_params)
         dropout = params.pop("dropout", 0.0)
-        add_relemb = params.pop("add_relemb", False)
 
         premise_encoder_params = params.pop("premise_encoder", None)
         if premise_encoder_params is not None:
@@ -276,11 +289,11 @@ class ModifiedDecomposableAttention(Model):
         regularizer = RegularizerApplicator.from_params(params.pop('regularizer', []))
         pretrained_file = params.pop('model_file')
         config_file = params.pop('config_file')
-        pool_relations = params.pop('pool_relations', True)
-        relemb_config = None if not add_relemb else get_config(config_file, params.pop('experiment', 'multiplication')) 
+        ablation_type = params.pop('ablation_type', 'vanilla')
+        relemb_config = get_config(config_file, params.pop('experiment', 'multiplication')) if ablation_type.startswith('attn_') else None
         params.assert_empty(cls.__name__)
         return cls(vocab=vocab,
-                   add_relemb=add_relemb,
+                   ablation_type=ablation_type,
                    relemb_config=relemb_config,
                    relemb_model_file=pretrained_file,
                    text_field_embedder=text_field_embedder,
@@ -289,7 +302,6 @@ class ModifiedDecomposableAttention(Model):
                    compare_feedforward=compare_feedforward,
                    aggregate_feedforward=aggregate_feedforward,
                    dropout=dropout,
-                   pool_relations=pool_relations,
                    premise_encoder=premise_encoder,
                    hypothesis_encoder=hypothesis_encoder,
                    initializer=initializer,
