@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Any
 
 import torch
 from torch.nn import Dropout
@@ -139,7 +139,8 @@ class ModifiedDecomposableAttention(Model):
     def forward(self,  # type: ignore
                 premise: Dict[str, torch.LongTensor],
                 hypothesis: Dict[str, torch.LongTensor],
-                label: torch.IntTensor = None) -> Dict[str, torch.Tensor]:
+                label: torch.IntTensor = None,
+                metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
         # pylint: disable=arguments-differ
         """
         Parameters
@@ -249,12 +250,17 @@ class ModifiedDecomposableAttention(Model):
         label_logits = self._aggregate_feedforward(aggregate_input)
         label_probs = torch.nn.functional.softmax(label_logits, dim=-1)
 
-        output_dict = {"label_logits": label_logits, "label_probs": label_probs}
+        output_dict = {"label_logits": label_logits, "label_probs": label_probs, "h2p_attention" : h2p_attention, "p2h_attention": p2h_attention}
 
         if label is not None:
             loss = self._loss(label_logits, label.long().view(-1))
             self._accuracy(label_logits, label.squeeze(-1))
             output_dict["loss"] = loss
+        if metadata is not None:
+            premise_tokens = [metadatum["premise_tokens"] for metadatum in metadata]
+            hypothesis_tokens = [metadatum["hypothesis_tokens"] for metadatum in metadata]
+            output_dict["premise_tokens"] = premise_tokens
+            output_dict["hypothesis_tokens"] = hypothesis_tokens
 
         return output_dict
 
