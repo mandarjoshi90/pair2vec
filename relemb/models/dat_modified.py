@@ -67,6 +67,8 @@ class ModifiedDecomposableAttention(Model):
     """
     def __init__(self, vocab: Vocabulary,
                  ablation_type: str,
+                 elmo_attention: bool,
+                 embedding_keys: List[str],
                  relemb_config,
                  relemb_model_file: str,
                  text_field_embedder: TextFieldEmbedder,
@@ -81,6 +83,7 @@ class ModifiedDecomposableAttention(Model):
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
         super(ModifiedDecomposableAttention, self).__init__(vocab, regularizer)
         self._ablation_type = ablation_type
+        self.relemb_model_file = relemb_model_file
         if ablation_type == 'attn_over_args' or ablation_type == 'attn_over_rels':
             field = Field(batch_first=True)
             create_vocab(relemb_config, field)
@@ -95,7 +98,9 @@ class ModifiedDecomposableAttention(Model):
             self.relemb.represent_relations = None
 
         self._text_field_embedder = text_field_embedder
+        self._embedding_keys = embedding_keys
         self._attend_feedforward = TimeDistributed(attend_feedforward)
+        self._elmo_attention = elmo_attention
         self._matrix_attention = MatrixAttention(similarity_function)
         self._compare_feedforward = TimeDistributed(compare_feedforward)
         self._aggregate_feedforward = aggregate_feedforward
@@ -115,10 +120,13 @@ class ModifiedDecomposableAttention(Model):
 
         initializer(self)
 
-    def get_embedding(self, key, text_field_input):
-        tensor = text_field_input[key]
-        embedder = getattr(self._text_field_embedder, 'token_embedder_{}'.format(key))
-        token_vectors = embedder(tensor)
+    def get_embedding(self, keys, text_field_input):
+        token_vectors = None
+        for key in keys:
+            tensor = text_field_input[key]
+            embedder = getattr(self._text_field_embedder, 'token_embedder_{}'.format(key)) if key != 'relemb_tokens' else self.get_argument_rep
+            embedding = embedder(tensor)
+            token_vectors = embedding if token_vectors is None else torch.cat((token_vectors, embedding), -1)
         return token_vectors
 
     # tokens : bs, sl
@@ -165,9 +173,8 @@ class ModifiedDecomposableAttention(Model):
         loss : torch.FloatTensor, optional
             A scalar loss to be optimised.
         """
-
-        embedded_premise = self._dropout(self.get_embedding("tokens", premise))
-        embedded_hypothesis = self._dropout(self.get_embedding("tokens", hypothesis))
+        embedded_premise = self._dropout(self.get_embedding(self._embedding_keys, premise))
+        embedded_hypothesis = self._dropout(self.get_embedding(self._embedding_keys, hypothesis))
 
 
 
@@ -180,8 +187,11 @@ class ModifiedDecomposableAttention(Model):
             embedded_hypothesis = self._dropout(self._hypothesis_encoder(embedded_hypothesis, hypothesis_mask))
         embedded_premise = embedded_premise * premise_mask.float().unsqueeze(-1)
         embedded_hypothesis = embedded_hypothesis * hypothesis_mask.float().unsqueeze(-1)
-        projected_premise = self._attend_feedforward(embedded_premise)
-        projected_hypothesis = self._attend_feedforward(embedded_hypothesis)
+
+        premise_for_attention = embedded_premise if not self._elmo_attention else torch.cat((embedded_premise, self.get_embedding(["elmo"], premise)), -1)
+        hypothesis_for_attention = embedded_hypothesis if not self._elmo_attention else torch.cat((embedded_hypothesis, self.get_embedding(["elmo"], hypothesis)), -1)
+        projected_premise = self._attend_feedforward(premise_for_attention)
+        projected_hypothesis = self._attend_feedforward(hypothesis_for_attention)
         # Shape: (batch_size, premise_length, hypothesis_length)
         #import ipdb
         #ipdb.set_trace()
@@ -200,8 +210,8 @@ class ModifiedDecomposableAttention(Model):
         if self._ablation_type == 'fasttext':
             relemb_premise_mask = 1 - (torch.eq(premise['relemb_tokens'], 0).long() + torch.eq(premise['relemb_tokens'], 1).long())
             relemb_hypothesis_mask = 1 - (torch.eq(hypothesis['relemb_tokens'], 0).long() + torch.eq(hypothesis['relemb_tokens'], 1).long())
-            fasttext_premise = self._dropout(self.get_embedding('relemb_tokens', premise))
-            fasttext_hypothesis = self._dropout(self.get_embedding('relemb_tokens', hypothesis))
+            fasttext_premise = self._dropout(self.get_embedding(['relemb_tokens'], premise))
+            fasttext_hypothesis = self._dropout(self.get_embedding(['relemb_tokens'], hypothesis))
             attended_ft_hypothesis = weighted_sum(fasttext_hypothesis, p2h_attention) * relemb_premise_mask.float().unsqueeze(-1)
             attended_ft_premise = weighted_sum(fasttext_premise, h2p_attention) * relemb_hypothesis_mask.float().unsqueeze(-1)
             premise_compare_input = (torch.cat([embedded_premise, attended_hypothesis, attended_ft_hypothesis], dim=-1))
@@ -296,10 +306,14 @@ class ModifiedDecomposableAttention(Model):
         pretrained_file = params.pop('model_file')
         config_file = params.pop('config_file')
         ablation_type = params.pop('ablation_type', 'vanilla')
+        elmo_attention = params.pop('elmo_attention', False)
+        embedding_keys = params.pop('embedding_keys', ['tokens'])
         relemb_config = get_config(config_file, params.pop('experiment', 'multiplication')) if ablation_type.startswith('attn_') else None
         params.assert_empty(cls.__name__)
         return cls(vocab=vocab,
                    ablation_type=ablation_type,
+                   elmo_attention=elmo_attention,
+                   embedding_keys=embedding_keys,
                    relemb_config=relemb_config,
                    relemb_model_file=pretrained_file,
                    text_field_embedder=text_field_embedder,
