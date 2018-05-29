@@ -34,7 +34,6 @@ class SpanRepresentation(Module):
         text = self.dropout(self.embedding(text))
         text = self.contextualizer(text)
         weights = masked_softmax(self.head_attention(text).squeeze(-1), mask.float())
-        print(weights)
         representation = (weights.unsqueeze(2) * self.head_transform(text)).sum(dim=1)
         return representation
 
