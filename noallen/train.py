@@ -157,17 +157,33 @@ class EvaluationStatistics:
         self.threshold = config.threshold
         self.pos_pred = 0.0
         self.neg_pred = 0.0
+        self.positive_loss = 0
+        self.neg_sub_loss = 0
+        self.neg_obj_loss = 0
+        self.neg_rel_loss = 0
+        self.type_obj_loss = 0
+        self.type_sub_loss = 0
         
     def update(self, loss, output_dict):
         observed_probabilities = output_dict['observed_probabilities']
         sampled_probabilities = output_dict['sampled_probabilities']
         self.n_examples += observed_probabilities.size()[0]
         self.loss += loss.data[0]
+        self.positive_loss += output_dict['positive_loss'].data[0]
+        self.neg_sub_loss += output_dict['negative_subject_loss'].data[0]
+        self.neg_obj_loss += output_dict['negative_object_loss'].data[0]
+
+        self.type_sub_loss += output_dict['type_subject_loss'].data[0] if 'type_subject_loss' in output_dict else self.type_sub_loss
+        self.type_obj_loss += output_dict['type_object_loss'].data[0] if 'type_object_loss' in output_dict else self.type_obj_loss
+        self.neg_rel_loss += output_dict['negative_rel_loss'].data[0]
         self.pos_pred += metrics.positive_predictions_for(observed_probabilities, self.threshold)
         self.neg_pred += metrics.positive_predictions_for(sampled_probabilities, self.threshold)
     
     def average(self):
         return self.loss / self.n_examples, self.pos_pred / self.n_examples, self.neg_pred / self.n_examples
+
+    def average_loss(self):
+        return self.positive_loss / self.n_examples, self.neg_sub_loss / self.n_examples, self.neg_obj_loss / self.n_examples, self.neg_rel_loss / self.n_examples, self.type_sub_loss / self.n_examples, self.type_obj_loss / self.n_examples
 
 
 class StatsLogger:
@@ -200,13 +216,17 @@ class StatsLogger:
         self.writer.add_scalar('Train_Neg.', train_neg, iterations)
         self.writer.add_scalar('Dev_Pos.', dev_pos, iterations)
         self.writer.add_scalar('Dev_Neg.', dev_neg, iterations)
+        # pos_loss, neg_sub_loss, neg_obj_loss, neg_rel_loss = train_eval_stats.average_loss()
+        # logger.info('pos_loss {:.3f}, neg_sub_loss {:.3f}, neg_obj_loss {:.3f}, neg_rel_loss {:.3f}'.format(pos_loss, neg_sub_loss, neg_obj_loss, neg_rel_loss))
 
     def epoch_log(self, epoch, iterations, train_eval_stats, dev_eval_stats):
         train_loss, train_pos, train_neg = train_eval_stats.average()
         dev_loss, dev_pos, dev_neg = dev_eval_stats.average()
+        pos_loss, neg_sub_loss, neg_obj_loss, neg_rel_loss, type_sub_loss, type_obj_loss = train_eval_stats.average_loss()
 
         logger.info("In epoch {}".format(epoch))
         logger.info("Epoch:{}, iter:{}, train loss: {:.6f}, dev loss:{:.6f}, train pos:{:.4f}, train neg:{:.4f}, dev pos: {:.4f} dev neg: {:.4f}".format(epoch, iterations,                                                                                                                   train_loss, dev_loss, train_pos, train_neg, dev_pos, dev_neg))
+        logger.info('pos_loss {:.3f}, neg_sub_loss {:.3f}, neg_obj_loss {:.3f}, neg_rel_loss {:.3f}, type_sub_loss {:.3f}, type_obj_loss {:.3f}'.format(pos_loss, neg_sub_loss, neg_obj_loss, neg_rel_loss, type_sub_loss, type_obj_loss))
 
 
 if __name__ == "__main__":
