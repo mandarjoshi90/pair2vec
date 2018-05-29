@@ -1,5 +1,4 @@
 from noallen.data import TextField
-from noallen.iterator import BasicSamplingIterator
 from typing import Optional, Dict, Union, Sequence, Iterable, Iterator, TypeVar, List
 from tqdm import tqdm
 from collections import defaultdict, Counter, OrderedDict
