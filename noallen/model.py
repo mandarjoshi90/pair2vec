@@ -1,11 +1,21 @@
 import torch
+from torch.autograd import Variable
 from typing import Dict
 from torch.nn import Module, Linear, Dropout, Sequential, Embedding, LogSigmoid, ReLU
 from torch.nn.functional import sigmoid, logsigmoid, softmax
 from allennlp.nn.util import get_text_field_mask
-from noallen.representation import SpanRepresentation
+from noallen.representation import SpanRepresentation, PositionalRepresentation, LRPositionalRepresentation
 from torch.nn.init import xavier_normal
 from noallen.util import pretrained_embeddings_or_xavier
+import numpy as np
+
+def get_type_file(filename, vocab, indxs=False):
+    data = np.load(filename)
+    if len(vocab) - data.shape[0] > 0:
+        if indxs:
+            data = data + (len(vocab) - data.shape[0])
+        data = np.concatenate((np.ones((len(vocab) - data.shape[0], data.shape[1]), dtype=data.dtype), data))
+    return torch.from_numpy(data)
 
 class RelationalEmbeddingModel(Module):
     
@@ -14,6 +24,12 @@ class RelationalEmbeddingModel(Module):
         self.config = config
         self.arg_vocab = arg_vocab
         self.rel_vocab = rel_vocab
+        self.compositional_rels = config.compositional_rels
+        self.separate_mlr = config.separate_mlr if hasattr(config, 'separate_mlr') else False
+        self.positional_rels = config.positional_rels if hasattr(config, 'positional_rels') else False
+        self.type_scores = get_type_file(config.type_scores_file, arg_vocab).cuda() if hasattr(config, 'type_scores_file') else None
+        self.type_indices = get_type_file(config.type_indices_file, arg_vocab, indxs=True).cuda() if hasattr(config, 'type_indices_file') else None
+
         self.pad = arg_vocab.stoi['<pad>']
         if config.compositional_args:
             self.represent_arguments = SpanRepresentation(config, config.d_args, arg_vocab)
@@ -23,8 +39,12 @@ class RelationalEmbeddingModel(Module):
         if config.compositional_rels:
             self.represent_relations = SpanRepresentation(config, config.d_rels, rel_vocab)
         else:
-            #self.represent_relations = Embedding(config.n_rels, config.d_rels)
-            self.represent_relations = Embedding(config.n_rels, config.d_rels)
+            self.n_rels = config.n_rels
+            if self.positional_rels:
+                self.represent_relations = LRPositionalRepresentation(config, rel_vocab)
+            else:
+                self.represent_relations = Embedding(config.n_rels, config.d_rels) if not self.separate_mlr else Embedding(3*config.n_rels, config.d_rels)
+                # self.represent_relations = Sequential(self.represent_relations, Linear(config.d_rels, config.d_rels))
         
         if config.relation_predictor == 'multiplication':
             self.predict_relations = lambda x, y: x * y
@@ -40,7 +60,7 @@ class RelationalEmbeddingModel(Module):
         if isinstance(fields, Dict):
             return (field['tokens'], get_text_field_mask(field)) 
         else:
-            return  ((field, 1.0 - torch.eq(field, self.pad)) if len(field.size()) > 1 else field for field in fields)
+            return  ((field, 1.0 - torch.eq(field, self.pad).float()) if (len(field.size()) > 1 and (self.compositional_rels)) else field for field in fields)
     
     def init(self):
         if isinstance(self.represent_arguments, Embedding):
@@ -53,7 +73,12 @@ class RelationalEmbeddingModel(Module):
             #pass #retrained_embeddings_or_xavier(self.config, self.represent_arguments, self.vocab, self.config.argument_namespace)
         if isinstance(self.represent_relations, Embedding):
             if self.rel_vocab.vectors is not None:
-                self.represent_relations.weight.data.copy_(self.rel_vocab.vectors) #.repeat(3,1))
+                # xavier_normal(self.represent_relations.weight.data)
+                # pass
+                self.represent_relations.weight.data[:self.n_rels].copy_(self.rel_vocab.vectors) #.repeat(3,1))
+                if self.separate_mlr:
+                    self.represent_relations.weight.data[self.n_rels:2*self.n_rels].copy_(self.rel_vocab.vectors) #.repeat(3,1))
+                    self.represent_relations.weight.data[2*self.n_rels:3*self.n_rels].copy_(self.rel_vocab.vectors) #.repeat(3,1))
             else:
                 #xavier_normal(self.represent_relations.weight.data)
                 self.represent_relations.reset_parameters()
@@ -66,31 +91,60 @@ class RelationalEmbeddingModel(Module):
             batch = batch + (None, None)
         subjects, objects, observed_relations, sampled_relations, sampled_subjects, sampled_objects = batch
         subjects, objects = self.to_tensors((subjects, objects))
-        subjects = self.represent_arguments(subjects)
-        objects = self.represent_arguments(objects)
-        predicted_relations = self.predict_relations(subjects, objects)
+        embedded_subjects = self.represent_arguments(subjects)
+        embedded_objects = self.represent_arguments(objects)
+        predicted_relations = self.predict_relations(embedded_subjects, embedded_objects)
 
-        # loss
         observed_relations, sampled_relations = self.to_tensors((observed_relations, sampled_relations))
         observed_relations = self.represent_relations(observed_relations)
         sampled_relations = self.represent_relations(sampled_relations)
-        #score = lambda predicted, observed :  torch.bmm(predicted.unsqueeze(1), observed.unsqueeze(2)).squeeze(-1).squeeze(-1)
         score = lambda predicted, observed :  (predicted * observed).sum(-1)
         pos_rel_scores, neg_rel_scores = score(predicted_relations, observed_relations), score(predicted_relations, sampled_relations)
-        #import ipdb
-        #ipdb.set_trace()
-        positive_loss = -logsigmoid(pos_rel_scores).sum()
-        negative_loss = -logsigmoid(-neg_rel_scores).sum()
+
+        output_dict = {}
+        output_dict['positive_loss'] = -logsigmoid(pos_rel_scores).sum()
+        output_dict['negative_rel_loss'] = -logsigmoid(-neg_rel_scores).sum()
+        
         # fake pair loss
         if sampled_subjects is not None and sampled_objects is not None:
             sampled_subjects, sampled_objects = self.to_tensors((sampled_subjects, sampled_objects))
             sampled_subjects, sampled_objects = self.represent_arguments(sampled_subjects), self.represent_arguments(sampled_objects)
-            pred_relations_for_sampled_sub = self.predict_relations(sampled_subjects, objects)
-            pred_relations_for_sampled_obj = self.predict_relations(subjects, sampled_objects)
-            negative_loss += 0.5 * -logsigmoid(-score(pred_relations_for_sampled_sub, observed_relations)).sum()
-            negative_loss += 0.5 * -logsigmoid(-score(pred_relations_for_sampled_obj, observed_relations)).sum()
-        loss = positive_loss + negative_loss
-        return predicted_relations, loss, {'observed_probabilities': sigmoid(pos_rel_scores), 'sampled_probabilities': sigmoid(neg_rel_scores)}
+            pred_relations_for_sampled_sub = self.predict_relations(sampled_subjects, embedded_objects)
+            pred_relations_for_sampled_obj = self.predict_relations(embedded_subjects, sampled_objects)
+            output_dict['negative_subject_loss'] =  -logsigmoid(-score(pred_relations_for_sampled_sub, observed_relations)).sum()
+            output_dict['negative_object_loss'] = -logsigmoid(-score(pred_relations_for_sampled_obj, observed_relations)).sum()
+        if self.type_scores is not None:
+            method = 'unigram'
+            type_sampled_subjects, type_sampled_objects = self.get_type_sampled_arguments(subjects, method), self.get_type_sampled_arguments(objects, method)
+            type_sampled_subjects, type_sampled_objects = self.represent_arguments(type_sampled_subjects), self.represent_arguments(type_sampled_objects)
+            pred_relations_for_type_sampled_sub = self.predict_relations(type_sampled_subjects, embedded_objects)
+            pred_relations_for_type_sampled_obj = self.predict_relations(embedded_subjects, type_sampled_objects)
+            output_dict['type_subject_loss'] =  -logsigmoid(-score(pred_relations_for_type_sampled_sub, observed_relations)).sum()
+            output_dict['type_object_loss'] = -logsigmoid(-score(pred_relations_for_type_sampled_obj, observed_relations)).sum()
+        loss = 0.0
+        loss_weights =  [('positive_loss', 1.0), ('negative_rel_loss', 1.0), ('negative_subject_loss', 0.4), ('negative_object_loss', 0.4), ('type_subject_loss', 0.1), ('type_object_loss', 0.1)]
+        for loss_name, weight in loss_weights:
+            loss += weight * output_dict[loss_name]
+        output_dict['observed_probabilities'] = sigmoid(pos_rel_scores)
+        output_dict['sampled_probabilities'] = sigmoid(neg_rel_scores)
+        return predicted_relations, loss, output_dict
+
+    def get_type_sampled_arguments(self, arguments, method='uniform'):
+        # if torch.lt(arguments.data, 0).long().sum() > 0 or torch.gt(arguments.data, self.type_indices.size(0)).long().sum() > 0:
+            # import ipdb
+            # ipdb.set_trace()
+        argument_indices = torch.index_select(self.type_indices, 0, arguments.data)
+        if method == 'unigram':
+            argument_scores = torch.index_select(self.type_scores, 0, arguments.data)
+            sampled_idx_idxs = torch.multinomial(argument_scores, 1, replacement=True).squeeze(1).cuda()
+            sampled_idxs = torch.gather(argument_indices, 1, sampled_idx_idxs.unsqueeze(1)).squeeze(1)
+        else:
+            # sampled_idx_idxs = torch.randint(0, self.type_scores.size(1), size=arguments.size(0), replacement=True)
+            sampled_idx_idxs = torch.LongTensor(arguments.size(0)).random_(0, self.type_scores.size(1)).cuda()
+            sampled_idxs = torch.gather(argument_indices, 1, sampled_idx_idxs.unsqueeze(1)).squeeze(1)
+        return Variable(sampled_idxs, requires_grad=False)
+
+
 
     def score(self, predicted, observed):
         return torch.bmm(predicted.unsqueeze(1), observed.unsqueeze(2)).squeeze(-1).squeeze(-1)
@@ -103,8 +157,8 @@ class MLP(Module):
         self.dropout = Dropout(p=config.dropout)
         self.nonlinearity  = ReLU()
         #self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
-        self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
-        #self.mlp = Sequential(self.dropout, Linear(4 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
+        #self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
+        self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
         #self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout,  Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
     
     def forward(self, subjects, objects):
