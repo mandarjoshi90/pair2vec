@@ -77,6 +77,7 @@ class ModifiedDecomposableAttention(Model):
                  compare_feedforward: FeedForward,
                  aggregate_feedforward: FeedForward,
                  dropout: float,
+                 embedding_dropout: float,
                  premise_encoder: Optional[Seq2SeqEncoder] = None,
                  hypothesis_encoder: Optional[Seq2SeqEncoder] = None,
                  initializer: InitializerApplicator = InitializerApplicator(),
@@ -107,6 +108,7 @@ class ModifiedDecomposableAttention(Model):
         self._premise_encoder = premise_encoder
         self._hypothesis_encoder = hypothesis_encoder or premise_encoder
         self._dropout = Dropout(dropout)
+        self._embedding_dropout = Dropout(embedding_dropout)
 
         self._num_labels = vocab.get_vocab_size(namespace="labels")
 
@@ -173,8 +175,8 @@ class ModifiedDecomposableAttention(Model):
         loss : torch.FloatTensor, optional
             A scalar loss to be optimised.
         """
-        embedded_premise = self._dropout(self.get_embedding(self._embedding_keys, premise))
-        embedded_hypothesis = self._dropout(self.get_embedding(self._embedding_keys, hypothesis))
+        embedded_premise = self._embedding_dropout(self.get_embedding(self._embedding_keys, premise))
+        embedded_hypothesis = self._embedding_dropout(self.get_embedding(self._embedding_keys, hypothesis))
 
 
 
@@ -284,6 +286,7 @@ class ModifiedDecomposableAttention(Model):
         embedder_params = params.pop("text_field_embedder")
         text_field_embedder = TextFieldEmbedder.from_params(vocab, embedder_params)
         dropout = params.pop("dropout", 0.0)
+        embedding_dropout = params.pop("embedding_dropout", 0.0)
 
         premise_encoder_params = params.pop("premise_encoder", None)
         if premise_encoder_params is not None:
@@ -322,6 +325,7 @@ class ModifiedDecomposableAttention(Model):
                    compare_feedforward=compare_feedforward,
                    aggregate_feedforward=aggregate_feedforward,
                    dropout=dropout,
+                   embedding_dropout=embedding_dropout,
                    premise_encoder=premise_encoder,
                    hypothesis_encoder=hypothesis_encoder,
                    initializer=initializer,
