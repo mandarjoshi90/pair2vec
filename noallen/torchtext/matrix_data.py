@@ -124,7 +124,7 @@ def create_vocab(config, field):
     # specials = list(OrderedDict.fromkeys(tok for tok in [field.unk_token, field.pad_token, field.init_token, field.eos_token] if tok is not None))
     specials = ['<unk>', '<pad>', '<X>', '<Y>'] if config.compositional_rels else ['<unk>', '']
     #vocab = Vocab(tokens, specials=specials, vectors='glove.6B.300d', vectors_cache='/glove')
-    vocab = Vocab(tokens, specials=specials, vectors='fasttext.en.300d', vectors_cache='/fasttext')
+    vocab = Vocab(tokens, specials=specials, vectors='fasttext.en.300d', vectors_cache='data/fasttext')
     #vocab = Vocab(tokens, specials=specials)
     field.vocab  = vocab
 
@@ -146,10 +146,10 @@ def read_dev(fname, limit=None, compositional_rels=True, type_scores_file=None, 
 def dev_data(sample):
     yield sample
 
-def create_dataset(config):
-    triplet_dir = config.triplet_dir
+def create_dataset(config, triplet_dir=None):
+    triplet_dir = config.triplet_dir if triplet_dir is None else triplet_dir
     #files = [os.path.join(config.triplet_dir, fname) for fname in os.listdir(config.triplet_dir) if fname.endswith('.npy')]
-    files = [os.path.join(config.triplet_dir, 'triplets_' + str(i) + '.npy') for i in range(1, 1000)]
+    files = [os.path.join(triplet_dir, 'triplets_' + str(i) + '.npy') for i in range(1, 1000)]
     train_data = _LazyInstances(lambda : iter(read(files[1:])))
     type_scores_file = config.type_scores_file if hasattr(config, 'type_scores_file') else None
     type_indices_file = config.type_indices_file if hasattr(config, 'type_indices_file') else None

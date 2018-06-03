@@ -150,13 +150,22 @@ class RelationalEmbeddingModel(Module):
 
 class KBEmbeddingModel(Module):
     def __init__(self, config, text_model):
+        super(KBEmbeddingModel, self).__init__()
         self.text_model = text_model
         self.represent_relations = Embedding(config.n_kb_rels, config.d_rels)
         self.type_scores = None
 
-    def forward(subjects, objects, observed_relations, sampled_relations, sampled_subjects, sampled_objects):
-        predicted_relations = self.text_model.predict_relations(subjects, objects)
-        observed_relations = self.represent_relations(relations)
+    def init(self):
+        xavier_normal(self.represent_relations.weight.data)
+
+
+    def forward(self, batch):
+        subjects, objects, observed_relations, sampled_relations, sampled_subjects, sampled_objects = batch
+        observed_relations, sampled_relations = observed_relations.squeeze(-1), sampled_relations.squeeze(-1)
+        embedded_subjects = self.text_model.represent_arguments(subjects)
+        embedded_objects = self.text_model.represent_arguments(objects)
+        predicted_relations = self.text_model.predict_relations(embedded_subjects, embedded_objects)
+        observed_relations = self.represent_relations(observed_relations)
         sampled_relations = self.represent_relations(sampled_relations)
 
         score = lambda predicted, observed :  (predicted * observed).sum(-1)
@@ -165,14 +174,13 @@ class KBEmbeddingModel(Module):
         output_dict = {}
         output_dict['positive_loss'] = -logsigmoid(pos_rel_scores).sum()
         output_dict['negative_rel_loss'] = -logsigmoid(-neg_rel_scores).sum()
-        loss_weights =  [('positive_loss', 1.0), ('negative_rel_loss', 1.0), ('negative_subject_loss', 0.5), ('negative_object_loss', 0.5)]
+        loss_weights =  [('positive_loss', 1.0), ('negative_rel_loss', 2.0), ('negative_subject_loss', 0.5), ('negative_object_loss', 0.5)]
         
         # fake pair loss
         if sampled_subjects is not None and sampled_objects is not None:
-            sampled_subjects, sampled_objects = self.to_tensors((sampled_subjects, sampled_objects))
-            sampled_subjects, sampled_objects = self.represent_arguments(sampled_subjects), self.represent_arguments(sampled_objects)
-            pred_relations_for_sampled_sub = self.predict_relations(sampled_subjects, embedded_objects)
-            pred_relations_for_sampled_obj = self.predict_relations(embedded_subjects, sampled_objects)
+            sampled_subjects, sampled_objects = self.text_model.represent_arguments(sampled_subjects), self.text_model.represent_arguments(sampled_objects)
+            pred_relations_for_sampled_sub = self.text_model.predict_relations(sampled_subjects, embedded_objects)
+            pred_relations_for_sampled_obj = self.text_model.predict_relations(embedded_subjects, sampled_objects)
             output_dict['negative_subject_loss'] =  -logsigmoid(-score(pred_relations_for_sampled_sub, observed_relations)).sum()
             output_dict['negative_object_loss'] = -logsigmoid(-score(pred_relations_for_sampled_obj, observed_relations)).sum()
         if self.type_scores is not None:
@@ -190,8 +198,7 @@ class KBEmbeddingModel(Module):
             loss += weight * output_dict[loss_name]
         output_dict['observed_probabilities'] = sigmoid(pos_rel_scores)
         output_dict['sampled_probabilities'] = sigmoid(neg_rel_scores)
-
-
+        return predicted_relations, loss, output_dict
 
 class MLP(Module):
     
@@ -199,7 +206,7 @@ class MLP(Module):
         super(MLP, self).__init__()
         self.dropout = Dropout(p=config.dropout)
         self.nonlinearity  = ReLU()
-        #self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
+        # self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
         #self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
         self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
         #self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout,  Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
