@@ -104,7 +104,7 @@ class RelationalEmbeddingModel(Module):
         output_dict = {}
         output_dict['positive_loss'] = -logsigmoid(pos_rel_scores).sum()
         output_dict['negative_rel_loss'] = -logsigmoid(-neg_rel_scores).sum()
-        loss_weights =  [('positive_loss', 1.0), ('negative_rel_loss', 1.0), ('negative_subject_loss', 0.2), ('negative_object_loss', 0.2)]
+        loss_weights =  [('positive_loss', 1.0), ('negative_rel_loss', 1.0), ('negative_subject_loss', 0.4), ('negative_object_loss', 0.4)]
         
         # fake pair loss
         if sampled_subjects is not None and sampled_objects is not None:
@@ -131,9 +131,6 @@ class RelationalEmbeddingModel(Module):
         return predicted_relations, loss, output_dict
 
     def get_type_sampled_arguments(self, arguments, method='uniform'):
-        # if torch.lt(arguments.data, 0).long().sum() > 0 or torch.gt(arguments.data, self.type_indices.size(0)).long().sum() > 0:
-            # import ipdb
-            # ipdb.set_trace()
         argument_indices = torch.index_select(self.type_indices, 0, arguments.data)
         if method == 'unigram':
             argument_scores = torch.index_select(self.type_scores, 0, arguments.data)
@@ -150,6 +147,51 @@ class RelationalEmbeddingModel(Module):
     def score(self, predicted, observed):
         return torch.bmm(predicted.unsqueeze(1), observed.unsqueeze(2)).squeeze(-1).squeeze(-1)
     
+
+class KBEmbeddingModel(Module):
+    def __init__(self, config, text_model):
+        self.text_model = text_model
+        self.represent_relations = Embedding(config.n_kb_rels, config.d_rels)
+        self.type_scores = None
+
+    def forward(subjects, objects, observed_relations, sampled_relations, sampled_subjects, sampled_objects):
+        predicted_relations = self.text_model.predict_relations(subjects, objects)
+        observed_relations = self.represent_relations(relations)
+        sampled_relations = self.represent_relations(sampled_relations)
+
+        score = lambda predicted, observed :  (predicted * observed).sum(-1)
+        pos_rel_scores, neg_rel_scores = score(predicted_relations, observed_relations), score(predicted_relations, sampled_relations)
+
+        output_dict = {}
+        output_dict['positive_loss'] = -logsigmoid(pos_rel_scores).sum()
+        output_dict['negative_rel_loss'] = -logsigmoid(-neg_rel_scores).sum()
+        loss_weights =  [('positive_loss', 1.0), ('negative_rel_loss', 1.0), ('negative_subject_loss', 0.5), ('negative_object_loss', 0.5)]
+        
+        # fake pair loss
+        if sampled_subjects is not None and sampled_objects is not None:
+            sampled_subjects, sampled_objects = self.to_tensors((sampled_subjects, sampled_objects))
+            sampled_subjects, sampled_objects = self.represent_arguments(sampled_subjects), self.represent_arguments(sampled_objects)
+            pred_relations_for_sampled_sub = self.predict_relations(sampled_subjects, embedded_objects)
+            pred_relations_for_sampled_obj = self.predict_relations(embedded_subjects, sampled_objects)
+            output_dict['negative_subject_loss'] =  -logsigmoid(-score(pred_relations_for_sampled_sub, observed_relations)).sum()
+            output_dict['negative_object_loss'] = -logsigmoid(-score(pred_relations_for_sampled_obj, observed_relations)).sum()
+        if self.type_scores is not None:
+            loss_weights += [('type_subject_loss', 0.3), ('type_object_loss', 0.3)]
+            method = 'unigram'
+            type_sampled_subjects, type_sampled_objects = self.get_type_sampled_arguments(subjects, method), self.get_type_sampled_arguments(objects, method)
+            type_sampled_subjects, type_sampled_objects = self.represent_arguments(type_sampled_subjects), self.represent_arguments(type_sampled_objects)
+            pred_relations_for_type_sampled_sub = self.predict_relations(type_sampled_subjects, embedded_objects)
+            pred_relations_for_type_sampled_obj = self.predict_relations(embedded_subjects, type_sampled_objects)
+            output_dict['type_subject_loss'] =  -logsigmoid(-score(pred_relations_for_type_sampled_sub, observed_relations)).sum()
+            output_dict['type_object_loss'] = -logsigmoid(-score(pred_relations_for_type_sampled_obj, observed_relations)).sum()
+        
+        loss = 0.0
+        for loss_name, weight in loss_weights:
+            loss += weight * output_dict[loss_name]
+        output_dict['observed_probabilities'] = sigmoid(pos_rel_scores)
+        output_dict['sampled_probabilities'] = sigmoid(neg_rel_scores)
+
+
 
 class MLP(Module):
     
