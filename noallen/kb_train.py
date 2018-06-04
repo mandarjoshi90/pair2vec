@@ -100,7 +100,7 @@ def train(train_data, dev_data, train_iterator, dev_iterator, full_model, config
         
         for batch_index, batch in enumerate(train_iterator(train_data, device=None, train=True)):
             if kb_train_data is not None and iterations % config.kb_every == 0:
-                train(kb_train_data, kb_dev_data, kb_train_iterator, kb_dev_iterator, full_model, config, opt, writer, 1)
+                train(kb_train_data, kb_dev_data, kb_train_iterator, kb_dev_iterator, full_model, config, opt, writer, 3)
             # Switch model to training mode, clear gradient accumulators
             model.train()
             opt.zero_grad()
@@ -149,6 +149,7 @@ def train(train_data, dev_data, train_iterator, dev_iterator, full_model, config
     for dev_batch_index, dev_batch in (enumerate(dev_iterator(dev_data, device=None, train=False))):
         answer, loss, dev_output_dict = model(dev_batch)
         dev_eval_stats.update(loss, dev_output_dict)
+    stats_logger.log( epoch, iterations, batch_index, train_eval_stats, dev_eval_stats)
 
 
 def rescale_gradients(model, grad_norm):
@@ -197,9 +198,6 @@ class EvaluationStatistics:
         pos_pred = metrics.positive_predictions_for(observed_probabilities, self.threshold)
         self.pos_pred += pos_pred
         self.neg_pred += metrics.positive_predictions_for(sampled_probabilities, self.threshold)
-        if self.pos_pred > self.n_examples:
-            import ipdb
-            ipdb.set_trace()
     
     def average(self):
         return self.loss / self.n_examples, self.pos_pred / self.n_examples, self.neg_pred / self.n_examples
@@ -232,12 +230,12 @@ class StatsLogger:
             dev_pos,
             dev_neg))
 
-        self.writer.add_scalar('Train_Loss', train_loss, iterations)
-        self.writer.add_scalar('Dev_Loss', dev_loss, iterations)
-        self.writer.add_scalar('Train_Pos.', train_pos, iterations)
-        self.writer.add_scalar('Train_Neg.', train_neg, iterations)
-        self.writer.add_scalar('Dev_Pos.', dev_pos, iterations)
-        self.writer.add_scalar('Dev_Neg.', dev_neg, iterations)
+        # self.writer.add_scalar('Train_Loss', train_loss, iterations)
+        # self.writer.add_scalar('Dev_Loss', dev_loss, iterations)
+        # self.writer.add_scalar('Train_Pos.', train_pos, iterations)
+        # self.writer.add_scalar('Train_Neg.', train_neg, iterations)
+        # self.writer.add_scalar('Dev_Pos.', dev_pos, iterations)
+        # self.writer.add_scalar('Dev_Neg.', dev_neg, iterations)
         # pos_loss, neg_sub_loss, neg_obj_loss, neg_rel_loss = train_eval_stats.average_loss()
         # logger.info('pos_loss {:.3f}, neg_sub_loss {:.3f}, neg_obj_loss {:.3f}, neg_rel_loss {:.3f}'.format(pos_loss, neg_sub_loss, neg_obj_loss, neg_rel_loss))
 

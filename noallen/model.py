@@ -104,7 +104,7 @@ class RelationalEmbeddingModel(Module):
         output_dict = {}
         output_dict['positive_loss'] = -logsigmoid(pos_rel_scores).sum()
         output_dict['negative_rel_loss'] = -logsigmoid(-neg_rel_scores).sum()
-        loss_weights =  [('positive_loss', 1.0), ('negative_rel_loss', 1.0), ('negative_subject_loss', 0.4), ('negative_object_loss', 0.4)]
+        loss_weights =  [('positive_loss', 1.0), ('negative_rel_loss', 1.0), ('negative_subject_loss', 0.2), ('negative_object_loss', 0.2)]
         
         # fake pair loss
         if sampled_subjects is not None and sampled_objects is not None:
@@ -116,7 +116,7 @@ class RelationalEmbeddingModel(Module):
             output_dict['negative_object_loss'] = -logsigmoid(-score(pred_relations_for_sampled_obj, observed_relations)).sum()
         if self.type_scores is not None:
             loss_weights += [('type_subject_loss', 0.3), ('type_object_loss', 0.3)]
-            method = 'unigram'
+            method = 'uniform'
             type_sampled_subjects, type_sampled_objects = self.get_type_sampled_arguments(subjects, method), self.get_type_sampled_arguments(objects, method)
             type_sampled_subjects, type_sampled_objects = self.represent_arguments(type_sampled_subjects), self.represent_arguments(type_sampled_objects)
             pred_relations_for_type_sampled_sub = self.predict_relations(type_sampled_subjects, embedded_objects)
