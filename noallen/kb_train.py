@@ -43,7 +43,7 @@ def main(args, config):
     train_data, dev_data, train_iterator, dev_iterator, args_field, rels_field = read_data(config, preindex=True)
 
     model = RelationalEmbeddingModel(config, args_field.vocab, rels_field.vocab)
-    #model = KBEmbeddingModel(config, model)
+    # model = KBEmbeddingModel(config, model)
     model.cuda()
     opt = optim.SGD(model.parameters(), lr=config.lr)
     kb_train_data, kb_dev_data, kb_train_iterator, kb_dev_iterator = None, None, None, None
@@ -185,18 +185,19 @@ class EvaluationStatistics:
         
     def update(self, loss, output_dict):
         observed_probabilities = output_dict['observed_probabilities']
-        sampled_probabilities = output_dict['sampled_probabilities']
         self.n_examples += observed_probabilities.size()[0]
         self.loss += loss.data[0]
         self.positive_loss += output_dict['positive_loss'].data[0]
-        self.neg_sub_loss += output_dict['negative_subject_loss'].data[0]
-        self.neg_obj_loss += output_dict['negative_object_loss'].data[0]
+        self.neg_sub_loss += output_dict['negative_subject_loss'].data[0]if 'negative_subject_loss' in output_dict else self.neg_sub_loss
+        self.neg_obj_loss += output_dict['negative_object_loss'].data[0] if 'negative_object_loss' in output_dict else self.neg_obj_loss
 
         self.type_sub_loss += output_dict['type_subject_loss'].data[0] if 'type_subject_loss' in output_dict else self.type_sub_loss
         self.type_obj_loss += output_dict['type_object_loss'].data[0] if 'type_object_loss' in output_dict else self.type_obj_loss
-        self.neg_rel_loss += output_dict['negative_rel_loss'].data[0]
+        self.neg_rel_loss += output_dict['negative_rel_loss'].data[0] if 'negative_rel_loss' in output_dict else self.neg_rel_loss
+
         pos_pred = metrics.positive_predictions_for(observed_probabilities, self.threshold)
         self.pos_pred += pos_pred
+        sampled_probabilities = output_dict['sampled_probabilities']
         self.neg_pred += metrics.positive_predictions_for(sampled_probabilities, self.threshold)
     
     def average(self):
