@@ -29,8 +29,8 @@ class RelationalEmbeddingModel(Module):
         self.positional_rels = config.positional_rels if hasattr(config, 'positional_rels') else False
         self.type_scores = get_type_file(config.type_scores_file, arg_vocab).cuda() if hasattr(config, 'type_scores_file') else None
         self.type_indices = get_type_file(config.type_indices_file, arg_vocab, indxs=True).cuda() if hasattr(config, 'type_indices_file') else None
-
         self.pad = arg_vocab.stoi['<pad>']
+        self.num_neg_samples = config.num_neg_samples
         if config.compositional_args:
             self.represent_arguments = SpanRepresentation(config, config.d_args, arg_vocab)
         else:
@@ -67,6 +67,8 @@ class RelationalEmbeddingModel(Module):
             if self.arg_vocab.vectors is not None:
                 pretrained = self.arg_vocab.vectors
                 self.represent_arguments.weight.data[:, :pretrained.size(1)].copy_(pretrained)
+                # self.represent_arguments.weight.data[:,pretrained.size(1) :2*pretrained.size(1)].copy_(pretrained)
+                # self.represent_arguments.weight.data[:,2*pretrained.size(1) :3*pretrained.size(1)].copy_(pretrained)
             else:
                 #xavier_normal(self.represent_arguments.weight.data)
                 self.represent_arguments.reset_parameters()
@@ -104,16 +106,21 @@ class RelationalEmbeddingModel(Module):
         output_dict = {}
         output_dict['positive_loss'] = -logsigmoid(pos_rel_scores).sum()
         output_dict['negative_rel_loss'] = -logsigmoid(-neg_rel_scores).sum()
-        loss_weights =  [('positive_loss', 1.0), ('negative_rel_loss', 1.0), ('negative_subject_loss', 0.2), ('negative_object_loss', 0.2)]
+        loss_weights =  [('positive_loss', 1.0), ('negative_rel_loss', 1.0), ('negative_subject_loss', 1.0), ('negative_object_loss', 1.0)]
         
         # fake pair loss
         if sampled_subjects is not None and sampled_objects is not None:
-            sampled_subjects, sampled_objects = self.to_tensors((sampled_subjects, sampled_objects))
+            # sampled_subjects, sampled_objects = self.to_tensors((sampled_subjects, sampled_objects))
+            sampled_subjects, sampled_objects = sampled_subjects.view(-1, 1).squeeze(-1), sampled_objects.view(-1, 1).squeeze(-1)
             sampled_subjects, sampled_objects = self.represent_arguments(sampled_subjects), self.represent_arguments(sampled_objects)
+            embedded_objects, embedded_subjects = embedded_objects.repeat(self.num_neg_samples, 1), embedded_subjects.repeat(self.num_neg_samples, 1)
+            # import ipdb
+            # ipdb.set_trace()
             pred_relations_for_sampled_sub = self.predict_relations(sampled_subjects, embedded_objects)
             pred_relations_for_sampled_obj = self.predict_relations(embedded_subjects, sampled_objects)
-            output_dict['negative_subject_loss'] =  -logsigmoid(-score(pred_relations_for_sampled_sub, observed_relations)).sum()
-            output_dict['negative_object_loss'] = -logsigmoid(-score(pred_relations_for_sampled_obj, observed_relations)).sum()
+            observed_relations = observed_relations.repeat(self.num_neg_samples, 1)
+            output_dict['negative_subject_loss'] =  -logsigmoid(-score(pred_relations_for_sampled_sub, observed_relations)).sum() #/ self.num_neg_samples
+            output_dict['negative_object_loss'] = -logsigmoid(-score(pred_relations_for_sampled_obj, observed_relations)).sum() #/ self.num_neg_samples
         if self.type_scores is not None:
             loss_weights += [('type_subject_loss', 0.3), ('type_object_loss', 0.3)]
             method = 'uniform'
@@ -147,6 +154,93 @@ class RelationalEmbeddingModel(Module):
     def score(self, predicted, observed):
         return torch.bmm(predicted.unsqueeze(1), observed.unsqueeze(2)).squeeze(-1).squeeze(-1)
     
+
+class PairwiseRelationalEmbeddingModel(Module):
+    def __init__(self, config, arg_vocab, rel_vocab):
+        super(PairwiseRelationalEmbeddingModel, self).__init__()
+        self.config = config
+        self.arg_vocab = arg_vocab
+        self.rel_vocab = rel_vocab
+        self.compositional_rels = config.compositional_rels
+        self.separate_mlr = config.separate_mlr if hasattr(config, 'separate_mlr') else False
+        self.positional_rels = config.positional_rels if hasattr(config, 'positional_rels') else False
+        self.type_scores = get_type_file(config.type_scores_file, arg_vocab).cuda() if hasattr(config, 'type_scores_file') else None
+        self.type_indices = get_type_file(config.type_indices_file, arg_vocab, indxs=True).cuda() if hasattr(config, 'type_indices_file') else None
+        self.pad = arg_vocab.stoi['<pad>']
+        
+        if config.compositional_rels:
+            self.represent_relations = SpanRepresentation(config, config.d_rels, rel_vocab)
+        else:
+            self.n_rels = config.n_rels
+            if self.positional_rels:
+                self.represent_relations = LRPositionalRepresentation(config, rel_vocab)
+            else:
+                self.represent_relations = Embedding(config.n_rels, config.d_rels) if not self.separate_mlr else Embedding(3*config.n_rels, config.d_rels)
+                # self.represent_relations = Sequential(self.represent_relations, Linear(config.d_rels, config.d_rels))
+        
+        self.predict_relations = Embedding(config.n_pairs, config.d_args)
+        self.init()
+    
+    def to_tensors(self, fields):
+        if isinstance(fields, Dict):
+            return (field['tokens'], get_text_field_mask(field)) 
+        else:
+            return  ((field, 1.0 - torch.eq(field, self.pad).float()) if (len(field.size()) > 1 and (self.compositional_rels)) else field for field in fields)
+    
+    def init(self):
+        if isinstance(self.represent_relations, Embedding):
+            if self.rel_vocab.vectors is not None:
+                # xavier_normal(self.represent_relations.weight.data)
+                # pass
+                self.represent_relations.weight.data[:self.n_rels].copy_(self.rel_vocab.vectors) #.repeat(3,1))
+                if self.separate_mlr:
+                    self.represent_relations.weight.data[self.n_rels:2*self.n_rels].copy_(self.rel_vocab.vectors) #.repeat(3,1))
+                    self.represent_relations.weight.data[2*self.n_rels:3*self.n_rels].copy_(self.rel_vocab.vectors) #.repeat(3,1))
+            else:
+                #xavier_normal(self.represent_relations.weight.data)
+                self.represent_relations.reset_parameters()
+
+            # pretrained_embeddings_or_xavier(self.config, self.represent_relations, self.vocab, self.config.relation_namespace)
+    
+
+    def forward(self, batch):
+        pairs, observed_relations, sampled_relations = batch
+        predicted_relations = self.predict_relations(pairs)
+
+        observed_relations, sampled_relations = self.to_tensors((observed_relations, sampled_relations))
+        observed_relations = self.represent_relations(observed_relations)
+        sampled_relations = self.represent_relations(sampled_relations)
+        score = lambda predicted, observed :  (predicted * observed).sum(-1)
+        pos_rel_scores, neg_rel_scores = score(predicted_relations, observed_relations), score(predicted_relations, sampled_relations)
+
+        output_dict = {}
+        output_dict['positive_loss'] = -logsigmoid(pos_rel_scores).sum()
+        output_dict['negative_rel_loss'] = -logsigmoid(-neg_rel_scores).sum()
+        loss_weights =  [('positive_loss', 1.0), ('negative_rel_loss', 1.0)]
+        
+        loss = 0.0
+        for loss_name, weight in loss_weights:
+            loss += weight * output_dict[loss_name]
+        output_dict['observed_probabilities'] = sigmoid(pos_rel_scores)
+        output_dict['sampled_probabilities'] = sigmoid(neg_rel_scores)
+        return predicted_relations, loss, output_dict
+
+    def get_type_sampled_arguments(self, arguments, method='uniform'):
+        argument_indices = torch.index_select(self.type_indices, 0, arguments.data)
+        if method == 'unigram':
+            argument_scores = torch.index_select(self.type_scores, 0, arguments.data)
+            sampled_idx_idxs = torch.multinomial(argument_scores, 1, replacement=True).squeeze(1).cuda()
+            sampled_idxs = torch.gather(argument_indices, 1, sampled_idx_idxs.unsqueeze(1)).squeeze(1)
+        else:
+            # sampled_idx_idxs = torch.randint(0, self.type_scores.size(1), size=arguments.size(0), replacement=True)
+            sampled_idx_idxs = torch.LongTensor(arguments.size(0)).random_(0, self.type_scores.size(1)).cuda()
+            sampled_idxs = torch.gather(argument_indices, 1, sampled_idx_idxs.unsqueeze(1)).squeeze(1)
+        return Variable(sampled_idxs, requires_grad=False)
+
+
+
+    def score(self, predicted, observed):
+        return torch.bmm(predicted.unsqueeze(1), observed.unsqueeze(2)).squeeze(-1).squeeze(-1)
 
 class KBEmbeddingModel(Module):
     def __init__(self, config, text_model):
