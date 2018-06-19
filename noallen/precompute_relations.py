@@ -6,7 +6,7 @@ from noallen.torchtext.matrix_data import TripletIterator, create_vocab, create_
 from allennlp.data.iterators import BasicIterator
 import os
 from noallen.util import get_args, get_config
-from noallen.model import RelationalEmbeddingModel
+from noallen.model import RelationalEmbeddingModel, PairwiseRelationalEmbeddingModel
 import logging
 from tqdm import tqdm
 
