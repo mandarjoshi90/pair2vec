@@ -35,12 +35,15 @@ def get_artifacts_matrix(config):
 
     config.n_args = len(args_field.vocab)
     config.n_rels = len(rels_field.vocab)
-    iterator = TripletIterator(100, fields, return_nl=True)
+    iterator = TripletIterator(100, fields, return_nl=True, pairwise=config.pairwise)
     return dev, iterator, args_field, rels_field
 
 def dump(config, snapshot_file, relation_emb_file, txt_vocab_file):
     train_data, train_iterator, args_field, rels_field = get_artifacts_matrix(config)
-    model = RelationalEmbeddingModel(config, args_field.vocab, rels_field.vocab)
+    if config.pairwise:
+        model = PairwiseRelationalEmbeddingModel(config, args_field.vocab, rels_field.vocab)
+    else:
+        model = RelationalEmbeddingModel(config, args_field.vocab, rels_field.vocab)
     util.load_model(snapshot_file, model)
     model.cuda()
     model.eval()
@@ -48,9 +51,12 @@ def dump(config, snapshot_file, relation_emb_file, txt_vocab_file):
     logger.info("Model loaded...")
     relation_embeddings_list, relation_phrases_list = [], []
     for batch_num, (batch, inputs) in tqdm(enumerate(train_iterator(train_data, device=None, train=False))):
-        _, _, relation_phrases = inputs
-        subjects, objects, observed_relations, sampled_relations, _, _ = batch
-        relations, _ = model.to_tensors((observed_relations, subjects))
+        if config.pairwise:
+            _, observed_relations, sampled_relations= batch
+        else:
+            subjects, objects, observed_relations, sampled_relations, _, _ = batch
+        relation_phrases = inputs
+        relations, _ = model.to_tensors((observed_relations, observed_relations))
         relation_embeddings = model.represent_relations(relations)
         relation_embeddings = relation_embeddings.cpu()
         relation_embeddings_list += [(relation_embeddings[i]) for i in range(len(relation_phrases))]

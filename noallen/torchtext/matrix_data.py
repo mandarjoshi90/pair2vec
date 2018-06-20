@@ -134,12 +134,16 @@ class TripletIterator():
                 if device == None:
                     tensors = tuple([t.cuda() if t is not None else None for t in tensors])
                 if self.return_nl:
-                    subject_nl = [self.fields[0].vocab.itos[i] for i in inputs[0][batch_start: batch_start + self.batch_size]]
-                    object_nl = [self.fields[1].vocab.itos[i] for i in inputs[1][batch_start: batch_start + self.batch_size]]
+                    # subject_nl = [self.fields[0].vocab.itos[i] for i in inputs[0][batch_start: batch_start + self.batch_size]]
+                    # object_nl = [self.fields[1].vocab.itos[i] for i in inputs[1][batch_start: batch_start + self.batch_size]]
                     relation_nl = []
-                    for rel in  inputs[2][batch_start: batch_start + self.batch_size]:
-                        relation_nl += [' '.join([self.fields[2].vocab.itos[j] for j in rel])]
-                    yield tensors, (subject_nl, object_nl, relation_nl)
+                    rel_index = 2 if not self.pairwise else 1
+                    for rel in  inputs[rel_index][batch_start: batch_start + self.batch_size]:
+                        # import ipdb
+                        # ipdb.set_trace()
+                        relation_nl += [' '.join([self.fields[rel_index].vocab.itos[j] for j in rel])]
+                    # yield tensors, (subject_nl, object_nl, relation_nl)
+                    yield tensors, (relation_nl)
                 else:
                     yield tensors
 
