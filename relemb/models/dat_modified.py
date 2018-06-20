@@ -1,5 +1,5 @@
 from typing import Dict, Optional, List, Any
-
+from torch.autograd import Variable
 import torch
 from torch.nn import Dropout
 from allennlp.common import Params
@@ -85,7 +85,7 @@ class ModifiedDecomposableAttention(Model):
         super(ModifiedDecomposableAttention, self).__init__(vocab, regularizer)
         self._ablation_type = ablation_type
         self.relemb_model_file = relemb_model_file
-        if ablation_type == 'attn_over_args' or ablation_type == 'attn_over_rels':
+        if ablation_type == 'attn_over_args' or ablation_type == 'attn_over_rels' or ablation_type == 'max':
             field = Field(batch_first=True)
             create_vocab(relemb_config, field)
             arg_vocab = field.vocab
@@ -218,7 +218,7 @@ class ModifiedDecomposableAttention(Model):
             attended_ft_premise = weighted_sum(fasttext_premise, h2p_attention) * relemb_hypothesis_mask.float().unsqueeze(-1)
             premise_compare_input = (torch.cat([embedded_premise, attended_hypothesis, attended_ft_hypothesis], dim=-1))
             hypothesis_compare_input = (torch.cat([embedded_hypothesis, attended_premise, attended_ft_premise], dim=-1))
-        elif self._ablation_type  == 'attn_over_rels' or self._ablation_type == 'attn_over_args':
+        elif self._ablation_type == 'max' or self._ablation_type  == 'attn_over_rels' or self._ablation_type == 'attn_over_args':
             relemb_premise_mask = 1 - (torch.eq(premise['relemb_tokens'], 0).long() + torch.eq(premise['relemb_tokens'], 1).long())
             relemb_hypothesis_mask = 1 - (torch.eq(hypothesis['relemb_tokens'], 0).long() + torch.eq(hypothesis['relemb_tokens'], 1).long())
             premise_as_args = self.get_argument_rep(premise['relemb_tokens'])
@@ -233,8 +233,15 @@ class ModifiedDecomposableAttention(Model):
                 attended_hypothesis_relations = weighted_sum(p2h_relations, p2h_attention)
                 attended_premise_relations = weighted_sum(h2p_relations, h2p_attention)
             else:
-                attended_premise_args = weighted_sum(premise_as_args, h2p_attention).contiguous().view(-1, dim)
-                attended_hypothesis_args = weighted_sum(hypothesis_as_args, p2h_attention).contiguous().view(-1, dim)
+                p2h_arg_attention, h2p_arg_attention = p2h_attention, h2p_attention
+                if self._ablation_type == 'max':
+                    matrix = self._matrix_attention(embedded_premise, embedded_hypothesis)
+                    p2h = last_dim_softmax(matrix, hypothesis_mask)
+                    h2p = last_dim_softmax(matrix.transpose(1,2).contiguous(), premise_mask)
+                    p2h_arg_attention = self.get_max_attn_matrix(p2h)
+                    h2p_arg_attention = self.get_max_attn_matrix(h2p)
+                attended_premise_args = weighted_sum(premise_as_args, h2p_arg_attention).contiguous().view(-1, dim)
+                attended_hypothesis_args = weighted_sum(hypothesis_as_args, p2h_arg_attention).contiguous().view(-1, dim)
                 flat_premise, flat_hypothesis = premise_as_args.contiguous().view(-1, dim), hypothesis_as_args.contiguous().view(-1, dim)
                 attended_hypothesis_relations = self._dropout(self.relemb.predict_relations(flat_premise, attended_hypothesis_args)).contiguous().view(batch_size, premise_len, -1)
                 attended_premise_relations = self._dropout(self.relemb.predict_relations(flat_hypothesis, attended_premise_args)).contiguous().view(batch_size, hypothesis_len, -1)
@@ -248,10 +255,14 @@ class ModifiedDecomposableAttention(Model):
             hypothesis_compare_input = (torch.cat([embedded_hypothesis, attended_premise], dim=-1))
 
         compared_premise = self._compare_feedforward(premise_compare_input)
+        if self._ablation_type == 'vanilla':
+            compared_premise = compared_premise * premise_mask.unsqueeze(-1)
         # Shape: (batch_size, compare_dim)
         compared_premise = compared_premise.sum(dim=1)
 
         compared_hypothesis = self._compare_feedforward(hypothesis_compare_input)
+        if self._ablation_type == 'vanilla':
+           compared_hypothesis = compared_hypothesis * hypothesis_mask.unsqueeze(-1)
         # Shape: (batch_size, compare_dim)
         compared_hypothesis = compared_hypothesis.sum(dim=1)
         #if self._ablation_type == 'vanilla':
@@ -262,12 +273,14 @@ class ModifiedDecomposableAttention(Model):
         label_logits = self._aggregate_feedforward(aggregate_input)
         label_probs = torch.nn.functional.softmax(label_logits, dim=-1)
 
-        output_dict = {"label_logits": label_logits, "label_probs": label_probs, "h2p_attention" : h2p_attention, "p2h_attention": p2h_attention}
+        # output_dict = {"label_logits": label_logits, "label_probs": label_probs, "h2p_attention" : h2p_attention, "p2h_attention": p2h_attention}
+        output_dict = {"label_probs": label_probs}
 
         if label is not None:
             loss = self._loss(label_logits, label.long().view(-1))
             self._accuracy(label_logits, label.squeeze(-1))
             output_dict["loss"] = loss
+            output_dict["label"] = label
         if metadata is not None:
             premise_tokens = [metadatum["premise_tokens"] for metadatum in metadata]
             hypothesis_tokens = [metadatum["hypothesis_tokens"] for metadatum in metadata]
@@ -275,6 +288,15 @@ class ModifiedDecomposableAttention(Model):
             output_dict["hypothesis_tokens"] = hypothesis_tokens
 
         return output_dict
+
+    def get_max_attn_matrix(self, attention):
+        _, indices = torch.max(attention, -1)
+        indices = indices.unsqueeze(2).expand_as(attention).long()
+        arange = Variable(torch.arange(attention.size(-1), out=attention.data.new()), requires_grad=False)
+        arange = arange.unsqueeze(0).unsqueeze(1).expand_as(attention).long()
+        return torch.eq(arange, indices).float()
+
+
 
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
         return {
@@ -311,7 +333,7 @@ class ModifiedDecomposableAttention(Model):
         ablation_type = params.pop('ablation_type', 'vanilla')
         elmo_attention = params.pop('elmo_attention', False)
         embedding_keys = params.pop('embedding_keys', ['tokens'])
-        relemb_config = get_config(config_file, params.pop('experiment', 'multiplication')) if ablation_type.startswith('attn_') else None
+        relemb_config = get_config(config_file, params.pop('experiment', 'multiplication')) if not ablation_type.startswith('vanilla') else None
         params.assert_empty(cls.__name__)
         return cls(vocab=vocab,
                    ablation_type=ablation_type,
