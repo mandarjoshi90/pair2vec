@@ -7,7 +7,7 @@ import torch.optim as optim
 from torch.nn.utils import clip_grad_norm
 from tensorboardX import SummaryWriter
 
-from noallen.model import RelationalEmbeddingModel
+from noallen.model import RelationalEmbeddingModel, PairwiseRelationalEmbeddingModel
 #from noallen.torchtext.data import read_data
 from noallen.torchtext.matrix_data import read_data
 from noallen.util import get_args, get_config, makedirs
@@ -42,9 +42,14 @@ def main(args, config):
     prepare_env(args, config)
     train_data, dev_data, train_iterator, dev_iterator, args_field, rels_field = read_data(config, preindex=True)
 
-    model = RelationalEmbeddingModel(config, args_field.vocab, rels_field.vocab)
+    if config.pairwise:
+        model = PairwiseRelationalEmbeddingModel(config, args_field.vocab, rels_field.vocab)
+    else:
+        model = RelationalEmbeddingModel(config, args_field.vocab, rels_field.vocab)
+
     model.cuda()
-    opt = optim.SGD(model.parameters(), lr=config.lr)
+    params = filter(lambda p: p.requires_grad, model.parameters())
+    opt = optim.SGD(params, lr=config.lr)
 
     checkpoint = None
     if args.resume_snapshot:
@@ -163,6 +168,7 @@ class EvaluationStatistics:
         self.neg_rel_loss = 0
         self.type_obj_loss = 0
         self.type_sub_loss = 0
+        self.num_neg_samples = config.num_neg_samples
         
     def update(self, loss, output_dict):
         observed_probabilities = output_dict['observed_probabilities']
@@ -170,8 +176,8 @@ class EvaluationStatistics:
         self.n_examples += observed_probabilities.size()[0]
         self.loss += loss.data[0]
         self.positive_loss += output_dict['positive_loss'].data[0]
-        self.neg_sub_loss += output_dict['negative_subject_loss'].data[0]
-        self.neg_obj_loss += output_dict['negative_object_loss'].data[0]
+        self.neg_sub_loss += output_dict['negative_subject_loss'].data[0] if 'negative_subject_loss' in output_dict else self.neg_sub_loss
+        self.neg_obj_loss += output_dict['negative_object_loss'].data[0] if 'negative_object_loss' in output_dict else self.neg_obj_loss
 
         self.type_sub_loss += output_dict['type_subject_loss'].data[0] if 'type_subject_loss' in output_dict else self.type_sub_loss
         self.type_obj_loss += output_dict['type_object_loss'].data[0] if 'type_object_loss' in output_dict else self.type_obj_loss
@@ -180,7 +186,7 @@ class EvaluationStatistics:
         self.neg_pred += metrics.positive_predictions_for(sampled_probabilities, self.threshold)
     
     def average(self):
-        return self.loss / self.n_examples, self.pos_pred / self.n_examples, self.neg_pred / self.n_examples
+        return self.loss / self.n_examples, self.pos_pred / self.n_examples, (self.neg_pred / self.n_examples) / self.num_neg_samples
 
     def average_loss(self):
         return self.positive_loss / self.n_examples, self.neg_sub_loss / self.n_examples, self.neg_obj_loss / self.n_examples, self.neg_rel_loss / self.n_examples, self.type_sub_loss / self.n_examples, self.type_obj_loss / self.n_examples

@@ -7,20 +7,29 @@ from allennlp.data.token_indexers import SingleIdTokenIndexer
 from allennlp.common import Params
 from typing import Optional, Dict, Union, Sequence, Iterable
 from tqdm import tqdm
+from noallen.torchtext.vocab import Vocab
 from collections import defaultdict
 from noallen import util
 import os
-
+import pickle
 # This is bad; this belongs in the Vocabulary class. Bad. Bad. Bad.
 from allennlp.data.vocabulary import DEFAULT_NON_PADDED_NAMESPACES
 
 @DatasetReader.register('triple_reader')
 class TripleReader(DatasetReader):
-    def __init__(self, config):
+    def __init__(self, config, pair_to_index=None):
         super().__init__(lazy=True)
         config.relation_namespace = 'tokens' #if config.compositional_rels else "relation_labels"
         config.argument_namespace = 'tokens' #if config.compositional_args else "arg_labels"
         self.config = config
+        specials = ['<unk>', '<pad>', '<X>', '<Y>'] if config.compositional_rels else ['<unk>', '']
+        vocab_path = os.path.join(config.triplet_dir, "vocab.txt")
+        tokens = None
+        with open(vocab_path) as f:
+            text = f.read()
+            tokens = text.rstrip().split('\n')
+        self.vocab = Vocab(tokens, specials=specials)
+        self.pair_to_index = None if pair_to_index is None else pickle.load(open(pair_to_index, 'rb'))
 
         self._token_indexers = {'tokens': SingleIdTokenIndexer()}
 
@@ -48,9 +57,15 @@ class TripleReader(DatasetReader):
 
     def text_to_instance(self, subject, obj, relation=None, count=1):
         fields = {}
-        fields['subjects'] = self.get_field(subject, False)
-        fields['objects'] = self.get_field(obj, False)
-        metadata = {"count": count, "relation_phrases": relation}
+        if self.pair_to_index is None:
+            fields['subjects'] = self.get_field(subject, False)
+            fields['objects'] = self.get_field(obj, False)
+        else:
+            sub_id, obj_id = self.vocab.stoi[subject], self.vocab.stoi[obj]
+            pair_id = self.pair_to_index[(sub_id, obj_id)]
+            fields['pairs'] = LabelField(pair_id, label_namespace='pairs', skip_indexing=True)
+
+        metadata = {"count": count, "relation_phrases": relation, 'subjects': subject, 'objects': obj}
         fields['metadata'] = MetadataField(metadata)
 
         if relation is not None:
@@ -61,9 +76,11 @@ class TripleReader(DatasetReader):
     @classmethod
     def from_params(cls, params: Params) -> 'TripleReader':
         config_file = params.pop('config_file')
+        pair_to_index = params.pop('pair_to_index', None)
+
         exp = params.pop('experiment', 'multiplication')
         config = util.get_config(config_file, exp)
-        return cls(config=config)
+        return cls(config=config, pair_to_index=pair_to_index)
 
 
 def create_dataset(config):
