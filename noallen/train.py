@@ -168,6 +168,7 @@ class EvaluationStatistics:
         self.neg_rel_loss = 0
         self.type_obj_loss = 0
         self.type_sub_loss = 0
+        self.num_neg_samples = config.num_neg_samples
         
     def update(self, loss, output_dict):
         observed_probabilities = output_dict['observed_probabilities']
@@ -185,7 +186,7 @@ class EvaluationStatistics:
         self.neg_pred += metrics.positive_predictions_for(sampled_probabilities, self.threshold)
     
     def average(self):
-        return self.loss / self.n_examples, self.pos_pred / self.n_examples, self.neg_pred / self.n_examples
+        return self.loss / self.n_examples, self.pos_pred / self.n_examples, (self.neg_pred / self.n_examples) / self.num_neg_samples
 
     def average_loss(self):
         return self.positive_loss / self.n_examples, self.neg_sub_loss / self.n_examples, self.neg_obj_loss / self.n_examples, self.neg_rel_loss / self.n_examples, self.type_sub_loss / self.n_examples, self.type_obj_loss / self.n_examples

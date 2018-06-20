@@ -90,13 +90,16 @@ def sample_compositional(instances, alpha=None, compositional_rels=True, type_sc
         # type_sampled_objects = uniform_type_sampling(objects, type_scores, type_indices)
     return  subjects, objects, relations, sampled_relations, sampled_subjects, sampled_objects #, type_sampled_subjects, type_sampled_objects
 
-def sample_pairs(instances, alpha=None, compositional_rels=True, type_scores=None, type_indices=None):
+def sample_pairs(instances, alpha=None, compositional_rels=True, type_scores=None, type_indices=None, num_neg_samples=1):
     # if alpha is None:
     np.random.shuffle(instances)
     pairs, relations = instances[:, 0],  instances[:, 1:]
     relations = relations if compositional_rels or relations.shape[1] > 1 else relations.reshape(relations.shape[0])
-    sample_fn, kwargs = (smoothed_sampling, {'alpha': alpha}) if alpha is not None else (shuffled_sampling, {})
+    sample_fn, kwargs = (smoothed_sampling, {'alpha': alpha, 'num_neg_samples': num_neg_samples}) if alpha is not None else (shuffled_sampling, {})
     sampled_relations = sample_fn(relations, **kwargs)
+    # import ipdb
+    # ipdb.set_trace()
+    sampled_relations = sampled_relations.reshape((relations.shape[0], relations.shape[1], num_neg_samples))
     return pairs, relations, sampled_relations
 
 class TripletIterator():

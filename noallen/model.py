@@ -167,6 +167,7 @@ class PairwiseRelationalEmbeddingModel(Module):
         self.type_scores = get_type_file(config.type_scores_file, arg_vocab).cuda() if hasattr(config, 'type_scores_file') else None
         self.type_indices = get_type_file(config.type_indices_file, arg_vocab, indxs=True).cuda() if hasattr(config, 'type_indices_file') else None
         self.pad = arg_vocab.stoi['<pad>']
+        self.num_neg_samples = config.num_neg_samples
         
         if config.compositional_rels:
             self.represent_relations = SpanRepresentation(config, config.d_rels, rel_vocab)
@@ -188,6 +189,7 @@ class PairwiseRelationalEmbeddingModel(Module):
             return  ((field, 1.0 - torch.eq(field, self.pad).float()) if (len(field.size()) > 1 and (self.compositional_rels)) else field for field in fields)
     
     def init(self):
+        self.predict_relations.reset_parameters()
         if isinstance(self.represent_relations, Embedding):
             if self.rel_vocab.vectors is not None:
                 # xavier_normal(self.represent_relations.weight.data)
@@ -206,12 +208,19 @@ class PairwiseRelationalEmbeddingModel(Module):
     def forward(self, batch):
         pairs, observed_relations, sampled_relations = batch
         predicted_relations = self.predict_relations(pairs)
+        sampled_relations = sampled_relations.view(-1, observed_relations.size(1), 1).squeeze(-1)
+        score = lambda predicted, observed :  (predicted * observed).sum(-1)
+        # import ipdb
+        # ipdb.set_trace()
 
         observed_relations, sampled_relations = self.to_tensors((observed_relations, sampled_relations))
         observed_relations = self.represent_relations(observed_relations)
+        pos_rel_scores = score(predicted_relations, observed_relations)
+
+        observed_relations = observed_relations.repeat(self.num_neg_samples, 1)
+        predicted_relations = predicted_relations.repeat(self.num_neg_samples, 1)
         sampled_relations = self.represent_relations(sampled_relations)
-        score = lambda predicted, observed :  (predicted * observed).sum(-1)
-        pos_rel_scores, neg_rel_scores = score(predicted_relations, observed_relations), score(predicted_relations, sampled_relations)
+        neg_rel_scores = score(predicted_relations, sampled_relations)
 
         output_dict = {}
         output_dict['positive_loss'] = -logsigmoid(pos_rel_scores).sum()

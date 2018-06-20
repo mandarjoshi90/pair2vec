@@ -5,4 +5,5 @@ from relemb.models.multiword_distmult_sampled_relations import MWDistMultSampled
 from relemb.models.dat_modified import ModifiedDecomposableAttention
 from relemb.models.noallen_wrapper import NoAllenWrapper
 from relemb.models.lean_wrapper import LeanWrapper
+from relemb.models.pairwise_wrapper import PairwiseWrapper
 from relemb.models.dat_modified import ModifiedDecomposableAttention
