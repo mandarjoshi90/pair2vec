@@ -158,8 +158,8 @@ def main():
     # pickle.dump(pair_to_index, open('pair_to_index.pkl', 'wb'))
     print("Num_pairs {}".format(len(pair_to_index)))
     if len(matrix) > 0:
-        # save(matrix, triplets_dir, chunk_i)
-        save(matrix, triplets_dir, chunk_i, vocab)
+        save(matrix, triplets_dir, chunk_i)
+        # sample_and_save(matrix, triplets_dir, chunk_i, vocab)
 
 def sample_and_save(matrix, triplets_dir, chunk_i, vocab, thr=100):
     matrix = np.array(matrix)
