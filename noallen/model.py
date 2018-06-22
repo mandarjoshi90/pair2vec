@@ -25,12 +25,18 @@ class RelationalEmbeddingModel(Module):
         self.arg_vocab = arg_vocab
         self.rel_vocab = rel_vocab
         self.compositional_rels = config.compositional_rels
-        self.separate_mlr = config.separate_mlr if hasattr(config, 'separate_mlr') else False
-        self.positional_rels = config.positional_rels if hasattr(config, 'positional_rels') else False
+        self.separate_mlr = getattr(config, 'separate_mlr', False)
+        self.positional_rels = getattr(config, 'positional_rels', False)
         self.type_scores = get_type_file(config.type_scores_file, arg_vocab).cuda() if hasattr(config, 'type_scores_file') else None
         self.type_indices = get_type_file(config.type_indices_file, arg_vocab, indxs=True).cuda() if hasattr(config, 'type_indices_file') else None
         self.pad = arg_vocab.stoi['<pad>']
-        self.num_neg_samples = config.num_neg_samples
+        self.num_neg_samples = getattr(config, 'num_neg_samples', 1)
+        self.loss_weights =  [('positive_loss', getattr(config, 'positive_loss', 1.0)),
+                                ('negative_rel_loss', getattr(config, 'negative_rel_loss', 1.0)),
+                                ('negative_subject_loss', getattr(config, 'negative_subject_loss', 1.0)),
+                                ('negative_object_loss', getattr(config, 'negative_object_loss', 1.0))]
+        if self.type_scores is not None:
+            self.loss_weights += [('type_subject_loss', getattr(config, 'type_subject_loss', 0.3)), ('type_object_loss', getattr(config, 'type_object_loss', 0.3))]
         if config.compositional_args:
             self.represent_arguments = SpanRepresentation(config, config.d_args, arg_vocab)
         else:
@@ -92,6 +98,8 @@ class RelationalEmbeddingModel(Module):
         if len(batch) == 4:
             batch = batch + (None, None)
         subjects, objects, observed_relations, sampled_relations, sampled_subjects, sampled_objects = batch
+        # import ipdb
+        # ipdb.set_trace()
         subjects, objects = self.to_tensors((subjects, objects))
         embedded_subjects = self.represent_arguments(subjects)
         embedded_objects = self.represent_arguments(objects)
@@ -106,7 +114,7 @@ class RelationalEmbeddingModel(Module):
         output_dict = {}
         output_dict['positive_loss'] = -logsigmoid(pos_rel_scores).sum()
         output_dict['negative_rel_loss'] = -logsigmoid(-neg_rel_scores).sum()
-        loss_weights =  [('positive_loss', 1.0), ('negative_rel_loss', 1.0), ('negative_subject_loss', 1.0), ('negative_object_loss', 1.0)]
+        # loss_weights =  [('positive_loss', 1.0), ('negative_rel_loss', 1.0), ('negative_subject_loss', 1.0), ('negative_object_loss', 1.0)]
         
         # fake pair loss
         if sampled_subjects is not None and sampled_objects is not None:
@@ -122,7 +130,7 @@ class RelationalEmbeddingModel(Module):
             output_dict['negative_subject_loss'] =  -logsigmoid(-score(pred_relations_for_sampled_sub, observed_relations)).sum() #/ self.num_neg_samples
             output_dict['negative_object_loss'] = -logsigmoid(-score(pred_relations_for_sampled_obj, observed_relations)).sum() #/ self.num_neg_samples
         if self.type_scores is not None:
-            loss_weights += [('type_subject_loss', 0.3), ('type_object_loss', 0.3)]
+            # loss_weights += [('type_subject_loss', 0.3), ('type_object_loss', 0.3)]
             method = 'uniform'
             type_sampled_subjects, type_sampled_objects = self.get_type_sampled_arguments(subjects, method), self.get_type_sampled_arguments(objects, method)
             type_sampled_subjects, type_sampled_objects = self.represent_arguments(type_sampled_subjects), self.represent_arguments(type_sampled_objects)
@@ -131,7 +139,7 @@ class RelationalEmbeddingModel(Module):
             output_dict['type_subject_loss'] =  -logsigmoid(-score(pred_relations_for_type_sampled_sub, observed_relations)).sum()
             output_dict['type_object_loss'] = -logsigmoid(-score(pred_relations_for_type_sampled_obj, observed_relations)).sum()
         loss = 0.0
-        for loss_name, weight in loss_weights:
+        for loss_name, weight in self.loss_weights:
             loss += weight * output_dict[loss_name]
         output_dict['observed_probabilities'] = sigmoid(pos_rel_scores)
         output_dict['sampled_probabilities'] = sigmoid(neg_rel_scores)
