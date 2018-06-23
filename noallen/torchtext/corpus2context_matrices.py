@@ -1,3 +1,4 @@
+from math import sqrt
 from collections import Counter
 from math import sqrt
 from random import Random
@@ -10,20 +11,25 @@ import pickle
 from collections import defaultdict
 
 stop_words = set(['the', 'of', ',', 'in', 'and', 'to', '"', '(', ')', 'a', 'is', 'was', 'for', '.', '-', 'as', 'by', 'at', 'an', 'with', 'from', 'that', 'which', 'also', 'be', 'were', 'are', 'but', 'this', 'had', 'can', 'into'])
-def read_filtered_pairs(fname, vocab, thr=None, sorted_file=False):
-    pairs = set()
+def read_filtered_pairs(fname, vocab, thr=None, sorted_file=False, hardsample=False):
+    pairs_count = {}
     with open(fname, encoding='utf-8') as f:
         for line in tqdm(f):
-            w1, w2, count= line.strip().split('\t')
+            w1, w2, count = line.strip().split('\t')
             # w1, _, w2 = line.strip().split('\t')
-            if w1 in stop_words or w2 in stop_words:
+            if hardsample and (w1 in stop_words or w2 in stop_words):
                 continue
             if thr is None or float(count) > thr:
                 this_pair = (vocab.stoi[w1],vocab.stoi[w2]) if vocab.stoi[w1] < vocab.stoi[w2] else (vocab.stoi[w2],vocab.stoi[w1])
-                pairs.add(this_pair)
+                # pairs.add(this_pair)
+                pairs_count[this_pair] =float(count)
             elif sorted_file:
                 break
-    return pairs
+    total = float(sum(pairs_count.values()))
+    for k, count in pairs_count.items():
+        pairs_count[k] /= total
+    print('total {}, min {}'.format(total, thr / total))
+    return pairs_count
 
 def read_pair_vocab(fname, vocab):
     words = set()
@@ -39,6 +45,7 @@ def main():
         corpus2triplet_matrices.py [options] <corpus> <triplets_dir> 
     
     Options:
+        --sample NUM        sampling type is None (0), hardsample (1), soft sample (2) [default: 2]
         --reverse NUM       whether to add the reversed context [default: 0]
         --pair_vocab NUM    File containing pair vocab
         --chunk NUM         The number of lines to read before dumping each matrix [default: 100000]
@@ -60,6 +67,7 @@ def main():
     left = int(args['--left'])
     right = int(args['--right'])
     granularity = int(args['--gran'])
+    sample = int(args['--sample'])
     skip_next = int(args['--skip-next']) == 1
     pair_vocab = str(args['--pair_vocab']) if args['--pair_vocab'] is not None else None
     print('granularity {} skip_next {} reverse {}'.format(granularity, skip_next, reverse))
@@ -85,7 +93,7 @@ def main():
     R = 2*len(vocab)
     # lexinf_filter = read_filtered_pairs('/home/mandar90/data/lexinf/root09/train.txt', vocab)
     # print('lexinf_filter {}'.format(len(lexinf_filter)))
-    coor_filter = read_filtered_pairs('/sdb/data/wikipedia-sentences/sorted_coor_counts.txt', vocab, 50, sorted_file=True)
+    coor_filter = read_filtered_pairs('/sdb/data/wikipedia-sentences/sorted_coor_counts.txt', vocab, 50, sorted_file=True, hardsample=sample==1)
     #coor_filter = read_filtered_pairs('/home/mandar90/data/conceptnet/single_word/train.txt', vocab, None, sorted_file=False)
     print('count filter {}'.format(len(coor_filter)))
     # glove_filter = read_filtered_pairs('/sdb/data/wikipedia-sentences/pairs.txt', vocab, 0.4)
@@ -93,6 +101,9 @@ def main():
     filtered_pairs = None #lexinf_filter #.union(glove_filter)
     # print('final filter {}'.format(len(filtered_pairs)))
     pair_to_index = defaultdict()
+    stop_word_ids = set([vocab.stoi[w] for w in stop_words])
+    keep_wordpair = keep_wordpair_by_thr
+
     with open(corpus_file, 'r', encoding='utf-8') as f:
         for i_line, line in tqdm(enumerate(f)):
             tokens = line.strip().lower().split()
@@ -109,7 +120,7 @@ def main():
                     this_pair = (token_ids[ix], token_ids[iy]) if (token_ids[ix] < token_ids[iy]) else (token_ids[iy], token_ids[ix])
                     # if this_pair in coor_filter and (token_ids[ix] in pair_vocab or token_ids[iy] in pair_vocab):
                     # if token_ids[ix] in pair_vocab or token_ids[iy] in pair_vocab:
-                    if this_pair in coor_filter:
+                    if coor_filter is None or (this_pair in coor_filter and (sample != 2 or keep_wordpair(coor_filter, this_pair, vocab, stop_words=stop_word_ids))):
                         # if pair_vocab is not None:
                         # pair_to_index[ordered_pair] = pair_to_index.get(ordered_pair, len(pair_to_index))
                         if granularity == 3:
@@ -161,6 +172,19 @@ def main():
         save(matrix, triplets_dir, chunk_i)
         # sample_and_save(matrix, triplets_dir, chunk_i, vocab)
 
+def keep_wordpair_by_word2vec(count_dict, word_pair, vocab, thr=5e-7, stop_words=None):
+    remove_prob = ((count_dict[word_pair] - thr) / count_dict[word_pair]) - sqrt(thr / count_dict[word_pair])
+    random_prob = np.random.uniform()
+    # print(vocab.itos[word_pair[0]], vocab.itos[word_pair[1]], remove_prob)
+    return remove_prob < 0 or random_prob > remove_prob
+
+def keep_wordpair_by_thr(count_dict, word_pair, vocab, thr=0.95, stop_words=None):
+    remove_prob = 0.0
+    if word_pair[0] in stop_words or word_pair[1] in stop_words:
+        remove_prob = thr
+    random_prob = np.random.uniform()
+    return remove_prob < 0 or random_prob > remove_prob
+
 def sample_and_save(matrix, triplets_dir, chunk_i, vocab, thr=100):
     matrix = np.array(matrix)
     sub, obj = np.copy(matrix[:, 0]), np.copy(matrix[:, 1])
@@ -176,8 +200,6 @@ def sample_and_save(matrix, triplets_dir, chunk_i, vocab, thr=100):
         relp = ' '.join([vocab.itos[idx] for idx in rel])
         relp_to_sub[relp].append(vocab.itos[instance[0]])
         relp_to_obj[relp].append(vocab.itos[instance[1]])
-    import ipdb
-    ipdb.set_trace()
     sampled_subjects, sampled_objects = [], []
     for i, instance in enumerate(matrix):
         contexts = instance[2:]
