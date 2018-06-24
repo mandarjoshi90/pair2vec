@@ -10,7 +10,7 @@ from noallen.torchtext.vocab import Vocab
 import pickle
 from collections import defaultdict
 
-stop_words = set(['the', 'of', ',', 'in', 'and', 'to', '"', '(', ')', 'a', 'is', 'was', 'for', '.', '-', 'as', 'by', 'at', 'an', 'with', 'from', 'that', 'which', 'also', 'be', 'were', 'are', 'but', 'this', 'had', 'can', 'into'])
+stop_words = set(['the', 'of', ',', 'in', 'and', 'to', '"', '(', ')', 'a', 'is', 'was', 'for', '.', '-', 'as', 'by', 'at', 'an', 'with', 'from', 'that', 'which', 'also', 'be', 'were', 'are', 'but', 'this', 'had', 'can', 'into', 'could', 'would', 'should', 'then', 'do', 'does', 'above', 'after', 'again', 'same', 'any', 'been'])
 def read_filtered_pairs(fname, vocab, thr=None, sorted_file=False, hardsample=False):
     pairs_count = {}
     with open(fname, encoding='utf-8') as f:
@@ -38,6 +38,20 @@ def read_pair_vocab(fname, vocab):
             w = line.strip()
             words.add(vocab.stoi[w])
     return words
+
+def read_counts(fname, vocab, thr=10):
+    count_dict = defaultdict(int)
+    with open(fname, encoding='utf-8') as f:
+        for line in tqdm(f):
+            w1, count = line.strip().split('\t')
+            if int(count) > thr and w1 in vocab.stoi:
+                count_dict[vocab.stoi[w1]] =float(count)
+    total = float(sum(count_dict.values()))
+    for k, count in count_dict.items():
+        count_dict[k] /= total
+    print('total {}, min {}'.format(total, thr / total))
+    return count_dict
+
 
 def main():
     args = docopt("""
@@ -102,7 +116,8 @@ def main():
     # print('final filter {}'.format(len(filtered_pairs)))
     pair_to_index = defaultdict()
     stop_word_ids = set([vocab.stoi[w] for w in stop_words])
-    keep_wordpair = keep_wordpair_by_thr
+    keep_wordpair = keep_wordpair_by_mult
+    word_unigram_dict = read_counts('/sdb/data/wikipedia-sentences/counts.txt', vocab, 10)
 
     with open(corpus_file, 'r', encoding='utf-8') as f:
         for i_line, line in tqdm(enumerate(f)):
@@ -120,7 +135,7 @@ def main():
                     this_pair = (token_ids[ix], token_ids[iy]) if (token_ids[ix] < token_ids[iy]) else (token_ids[iy], token_ids[ix])
                     # if this_pair in coor_filter and (token_ids[ix] in pair_vocab or token_ids[iy] in pair_vocab):
                     # if token_ids[ix] in pair_vocab or token_ids[iy] in pair_vocab:
-                    if coor_filter is None or (this_pair in coor_filter and (sample != 2 or keep_wordpair(coor_filter, this_pair, vocab, stop_words=stop_word_ids))):
+                    if coor_filter is None or (this_pair in coor_filter and (sample != 2 or keep_wordpair(word_unigram_dict, this_pair, vocab, stop_words=stop_word_ids))):
                         # if pair_vocab is not None:
                         # pair_to_index[ordered_pair] = pair_to_index.get(ordered_pair, len(pair_to_index))
                         if granularity == 3:
@@ -177,6 +192,15 @@ def keep_wordpair_by_word2vec(count_dict, word_pair, vocab, thr=5e-7, stop_words
     random_prob = np.random.uniform()
     # print(vocab.itos[word_pair[0]], vocab.itos[word_pair[1]], remove_prob)
     return remove_prob < 0 or random_prob > remove_prob
+
+def keep_wordpair_by_mult(count_dict, word_pair, vocab, thr=5e-5, stop_words=None):
+    x, y = word_pair
+    clamp = lambda x : x if x < 1.0 else 1.0
+    keep_x = clamp(sqrt(thr / count_dict[x])) if x in count_dict else 0.0
+    keep_y = clamp(sqrt(thr / count_dict[y])) if y in count_dict else 0.0
+    random_prob = np.random.uniform()
+    # print(vocab.itos[word_pair[0]], vocab.itos[word_pair[1]], keep_x*keep_y)
+    return  random_prob < keep_x * keep_y
 
 def keep_wordpair_by_thr(count_dict, word_pair, vocab, thr=0.95, stop_words=None):
     remove_prob = 0.0
