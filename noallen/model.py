@@ -124,9 +124,9 @@ class RelationalEmbeddingModel(Module):
             rep_embedded_objects, rep_embedded_subjects = embedded_objects.repeat(self.num_neg_samples, 1), embedded_subjects.repeat(self.num_neg_samples, 1)
             pred_relations_for_sampled_sub = self.predict_relations(sampled_subjects, rep_embedded_objects)
             pred_relations_for_sampled_obj = self.predict_relations(rep_embedded_subjects, sampled_objects)
-            observed_relations = observed_relations.repeat(self.num_neg_samples, 1)
-            output_dict['negative_subject_loss'] =  -logsigmoid(-score(pred_relations_for_sampled_sub, observed_relations)).sum() #/ self.num_neg_samples
-            output_dict['negative_object_loss'] = -logsigmoid(-score(pred_relations_for_sampled_obj, observed_relations)).sum() #/ self.num_neg_samples
+            rep_observed_relations = observed_relations.repeat(self.num_neg_samples, 1)
+            output_dict['negative_subject_loss'] =  -logsigmoid(-score(pred_relations_for_sampled_sub, rep_observed_relations)).sum() #/ self.num_neg_samples
+            output_dict['negative_object_loss'] = -logsigmoid(-score(pred_relations_for_sampled_obj, rep_observed_relations)).sum() #/ self.num_neg_samples
         if self.type_scores is not None:
             # loss_weights += [('type_subject_loss', 0.3), ('type_object_loss', 0.3)]
             method = 'uniform'
