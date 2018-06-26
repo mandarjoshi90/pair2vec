@@ -31,6 +31,7 @@ class RelationalEmbeddingModel(Module):
         self.type_indices = get_type_file(config.type_indices_file, arg_vocab, indxs=True).cuda() if hasattr(config, 'type_indices_file') else None
         self.pad = arg_vocab.stoi['<pad>']
         self.num_neg_samples = getattr(config, 'num_neg_samples', 1)
+        self.num_sampled_relations = getattr(config, 'num_sampled_relations', 1)
         self.loss_weights =  [('positive_loss', getattr(config, 'positive_loss', 1.0)),
                                 ('negative_rel_loss', getattr(config, 'negative_rel_loss', 1.0)),
                                 ('negative_subject_loss', getattr(config, 'negative_subject_loss', 1.0)),
@@ -98,6 +99,7 @@ class RelationalEmbeddingModel(Module):
         if len(batch) == 4:
             batch = batch + (None, None)
         subjects, objects, observed_relations, sampled_relations, sampled_subjects, sampled_objects = batch
+        sampled_relations = sampled_relations.view(-1, observed_relations.size(1), 1).squeeze(-1)
         # import ipdb
         # ipdb.set_trace()
         subjects, objects = self.to_tensors((subjects, objects))
@@ -109,7 +111,9 @@ class RelationalEmbeddingModel(Module):
         observed_relations = self.represent_relations(observed_relations)
         sampled_relations = self.represent_relations(sampled_relations)
         score = lambda predicted, observed :  (predicted * observed).sum(-1)
-        pos_rel_scores, neg_rel_scores = score(predicted_relations, observed_relations), score(predicted_relations, sampled_relations)
+        rep_observed_relations = observed_relations.repeat(self.num_sampled_relations, 1)
+        rep_predicted_relations = predicted_relations.repeat(self.num_sampled_relations, 1)
+        pos_rel_scores, neg_rel_scores = score(rep_predicted_relations, rep_observed_relations), score(rep_predicted_relations, sampled_relations)
 
         output_dict = {}
         output_dict['positive_loss'] = -logsigmoid(pos_rel_scores).sum()
