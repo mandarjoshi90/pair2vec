@@ -171,14 +171,14 @@ def read(filenames):
             logger.info('Loading {} instances from {}'.format(instances.shape[0], fname))
             yield instances
 
-def read_dev(fname, pairwise=False, limit=None, compositional_rels=True, type_scores_file=None, type_indices_file=None, num_neg_samples=1):
+def read_dev(fname, pairwise=False, limit=None, compositional_rels=True, type_scores_file=None, type_indices_file=None, num_neg_samples=1, num_sampled_relations=1):
     instances = np.load(fname)
     instances = instances[:limit] if limit is not None else instances
     logger.info('Loading {} instances from {}'.format(instances.shape[0], fname))
     type_scores = None if type_scores_file is None else np.load(type_scores_file)
     type_indices = None if type_indices_file is None else np.load(type_indices_file)
     sample = sample_pairs if pairwise else sample_compositional
-    return sample(instances, alpha=.75, compositional_rels=compositional_rels, type_scores=type_scores, type_indices=type_indices, num_neg_samples=num_neg_samples)
+    return sample(instances, alpha=.75, compositional_rels=compositional_rels, type_scores=type_scores, type_indices=type_indices, num_neg_samples=num_neg_samples, num_sampled_relations=num_sampled_relations)
 
 def dev_data(sample):
     yield sample
@@ -190,7 +190,7 @@ def create_dataset(config, triplet_dir=None):
     train_data = _LazyInstances(lambda : iter(read(files[1:])))
     type_scores_file = config.type_scores_file if hasattr(config, 'type_scores_file') else None
     type_indices_file = config.type_indices_file if hasattr(config, 'type_indices_file') else None
-    validation_sample = read_dev(files[0], config.pairwise, 500000, config.compositional_rels, type_scores_file, type_indices_file, config.num_neg_samples)
+    validation_sample = read_dev(files[0], config.pairwise, 500000, config.compositional_rels, type_scores_file, type_indices_file, config.num_neg_samples, config.num_sampled_relations)
     validation_data = _LazyInstances(lambda : iter (dev_data(validation_sample)))
     return train_data, validation_data
 
