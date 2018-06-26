@@ -121,11 +121,9 @@ class RelationalEmbeddingModel(Module):
             # sampled_subjects, sampled_objects = self.to_tensors((sampled_subjects, sampled_objects))
             sampled_subjects, sampled_objects = sampled_subjects.view(-1, 1).squeeze(-1), sampled_objects.view(-1, 1).squeeze(-1)
             sampled_subjects, sampled_objects = self.represent_arguments(sampled_subjects), self.represent_arguments(sampled_objects)
-            embedded_objects, embedded_subjects = embedded_objects.repeat(self.num_neg_samples, 1), embedded_subjects.repeat(self.num_neg_samples, 1)
-            # import ipdb
-            # ipdb.set_trace()
-            pred_relations_for_sampled_sub = self.predict_relations(sampled_subjects, embedded_objects)
-            pred_relations_for_sampled_obj = self.predict_relations(embedded_subjects, sampled_objects)
+            rep_embedded_objects, rep_embedded_subjects = embedded_objects.repeat(self.num_neg_samples, 1), embedded_subjects.repeat(self.num_neg_samples, 1)
+            pred_relations_for_sampled_sub = self.predict_relations(sampled_subjects, rep_embedded_objects)
+            pred_relations_for_sampled_obj = self.predict_relations(rep_embedded_subjects, sampled_objects)
             observed_relations = observed_relations.repeat(self.num_neg_samples, 1)
             output_dict['negative_subject_loss'] =  -logsigmoid(-score(pred_relations_for_sampled_sub, observed_relations)).sum() #/ self.num_neg_samples
             output_dict['negative_object_loss'] = -logsigmoid(-score(pred_relations_for_sampled_obj, observed_relations)).sum() #/ self.num_neg_samples
