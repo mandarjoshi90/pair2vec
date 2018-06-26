@@ -113,7 +113,7 @@ class RelationalEmbeddingModel(Module):
         score = lambda predicted, observed :  (predicted * observed).sum(-1)
         rep_observed_relations = observed_relations.repeat(self.num_sampled_relations, 1)
         rep_predicted_relations = predicted_relations.repeat(self.num_sampled_relations, 1)
-        pos_rel_scores, neg_rel_scores = score(rep_predicted_relations, rep_observed_relations), score(rep_predicted_relations, sampled_relations)
+        pos_rel_scores, neg_rel_scores = score(predicted_relations, observed_relations), score(rep_predicted_relations, sampled_relations)
 
         output_dict = {}
         output_dict['positive_loss'] = -logsigmoid(pos_rel_scores).sum()
