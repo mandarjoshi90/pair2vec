@@ -7,5 +7,5 @@ from relemb.models.noallen_wrapper import NoAllenWrapper
 from relemb.models.lean_wrapper import LeanWrapper
 from relemb.models.pairwise_wrapper import PairwiseWrapper
 from relemb.models.dat_modified import ModifiedDecomposableAttention
-from relemb.models.esim import ESIM
 from relemb.models.vanilla_dam import VanillaDam
+from relemb.models.relemb_esim import RelembESIM

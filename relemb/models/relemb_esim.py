@@ -12,11 +12,17 @@ from allennlp.common import Params
 from allennlp.common.checks import check_dimensions_match
 from allennlp.data import Vocabulary
 from allennlp.models.model import Model
-from allennlp.modules import FeedForward, MatrixAttention
+from allennlp.modules import FeedForward
+from allennlp.modules.matrix_attention import DotProductMatrixAttention
 from allennlp.modules import Seq2SeqEncoder, SimilarityFunction, TimeDistributed, TextFieldEmbedder
 from allennlp.nn import InitializerApplicator, RegularizerApplicator
 from allennlp.nn.util import get_text_field_mask, last_dim_softmax, weighted_sum, replace_masked_values
 from allennlp.training.metrics import CategoricalAccuracy
+from noallen.torchtext.vocab import Vocab
+from noallen.torchtext.matrix_data import create_vocab
+from noallen.torchtext.indexed_field import Field
+from noallen.util import load_model, get_config
+from noallen.model import RelationalEmbeddingModel
 
 class VariationalDropout(torch.nn.Dropout):
     def forward(self, input):
@@ -34,8 +40,8 @@ class VariationalDropout(torch.nn.Dropout):
             return dropout_mask.unsqueeze(1) * input
 
 
-@Model.register("esim")
-class ESIM(Model):
+@Model.register("relemb-esim")
+class RelembESIM(Model):
     """
     This ``Model`` implements the ESIM sequence model described in `"Enhanced LSTM for Natural Language Inference"
     <https://www.semanticscholar.org/paper/Enhanced-LSTM-for-Natural-Language-Inference-Chen-Zhu/83e7654d545fbbaaf2328df365a781fb67b841b4>`_
@@ -72,6 +78,10 @@ class ESIM(Model):
         If provided, will be used to calculate the regularization penalty during training.
     """
     def __init__(self, vocab: Vocabulary,
+                embedding_keys,
+                 ablation_type: str,
+                 relemb_config,
+                 relemb_model_file,
                  text_field_embedder: TextFieldEmbedder,
                  encoder: Seq2SeqEncoder,
                  similarity_function: SimilarityFunction,
@@ -81,16 +91,33 @@ class ESIM(Model):
                  output_logit: FeedForward,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  dropout: float = 0.5,
+                 relemb_dropout: float = 0.0,
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
         super().__init__(vocab, regularizer)
+        self._ablation_type = ablation_type
+        self.relemb_model_file = relemb_model_file
+        if ablation_type == 'attn_over_args' or ablation_type == 'attn_over_rels' or ablation_type == 'max':
+            field = Field(batch_first=True)
+            create_vocab(relemb_config, field)
+            arg_vocab = field.vocab
+            rel_vocab = arg_vocab
+            relemb_config.n_args = len(arg_vocab)
+
+            self.relemb = RelationalEmbeddingModel(relemb_config, arg_vocab, rel_vocab)
+            load_model(relemb_model_file, self.relemb)
+            for param in self.relemb.parameters():
+                param.requires_grad = False
+            self.relemb.represent_relations = None
+        self._embedding_keys = embedding_keys
 
         self._text_field_embedder = text_field_embedder
         self._encoder = encoder
 
-        self._matrix_attention = MatrixAttention(similarity_function)
+        self._matrix_attention = DotProductMatrixAttention()
         self._projection_feedforward = projection_feedforward
 
         self._inference_encoder = inference_encoder
+        self._relemb_dropout = torch.nn.Dropout(relemb_dropout)
 
         if dropout:
             self.dropout = torch.nn.Dropout(dropout)
@@ -106,8 +133,6 @@ class ESIM(Model):
 
         check_dimensions_match(text_field_embedder.get_output_dim(), encoder.get_input_dim(),
                                "text field embedding dim", "encoder input dim")
-        check_dimensions_match(encoder.get_output_dim() * 4, projection_feedforward.get_input_dim(),
-                               "encoder output dim", "projection feedforward input")
         check_dimensions_match(projection_feedforward.get_output_dim(), inference_encoder.get_input_dim(),
                                "proj feedforward output dim", "inference lstm input dim")
 
@@ -115,6 +140,29 @@ class ESIM(Model):
         self._loss = torch.nn.CrossEntropyLoss()
 
         initializer(self)
+
+    def get_embedding(self, keys, text_field_input):
+        token_vectors = None
+        for key in keys:
+            tensor = text_field_input[key]
+            embedder = getattr(self._text_field_embedder, 'token_embedder_{}'.format(key)) if key != 'relemb_tokens' else self.get_argument_rep
+            embedding = embedder(tensor)
+            token_vectors = embedding if token_vectors is None else torch.cat((token_vectors, embedding), -1)
+        return token_vectors
+
+    # tokens : bs, sl
+    def get_argument_rep(self, tokens):
+        batch_size, seq_len = tokens.size()
+        argument_embedding = self.relemb.represent_arguments(tokens.view(-1, 1)).view(batch_size, seq_len, -1)
+        return argument_embedding
+
+
+    def get_relation_embedding(self, seq1, seq2):
+        (batch_size, sl1, dim), (_, sl2, _) = seq1.size(),seq2.size()
+        seq1 = seq1.unsqueeze(2).expand(batch_size, sl1, sl2, dim).contiguous().view(-1, dim)
+        seq2 = seq2.unsqueeze(1).expand(batch_size, sl1, sl2, dim).contiguous().view(-1, dim)
+        relation_embedding = self.relemb.predict_relations(seq1, seq2).contiguous().view(batch_size, sl1, sl2, dim)
+        return relation_embedding
 
     def forward(self,  # type: ignore
                 premise: Dict[str, torch.LongTensor],
@@ -144,8 +192,10 @@ class ESIM(Model):
         loss : torch.FloatTensor, optional
             A scalar loss to be optimised.
         """
-        embedded_premise = self._text_field_embedder(premise)
-        embedded_hypothesis = self._text_field_embedder(hypothesis)
+        embedded_premise = self.get_embedding(self._embedding_keys, premise)
+        embedded_hypothesis = self.get_embedding(self._embedding_keys, hypothesis)
+        # embedded_premise = self._text_field_embedder(premise)
+        # embedded_hypothesis = self._text_field_embedder(hypothesis)
         premise_mask = get_text_field_mask(premise).float()
         hypothesis_mask = get_text_field_mask(hypothesis).float()
 
@@ -170,18 +220,58 @@ class ESIM(Model):
         h2p_attention = last_dim_softmax(similarity_matrix.transpose(1, 2).contiguous(), premise_mask)
         # Shape: (batch_size, hypothesis_length, embedding_dim)
         attended_premise = weighted_sum(encoded_premise, h2p_attention)
+        if self._ablation_type == 'fasttext':
+            relemb_premise_mask = 1 - (torch.eq(premise['relemb_tokens'], 0).long() + torch.eq(premise['relemb_tokens'], 1).long())
+            relemb_hypothesis_mask = 1 - (torch.eq(hypothesis['relemb_tokens'], 0).long() + torch.eq(hypothesis['relemb_tokens'], 1).long())
+            fasttext_premise = self._relemb_dropout(self.get_embedding(['relemb_tokens'], premise))
+            fasttext_hypothesis = self._relemb_dropout(self.get_embedding(['relemb_tokens'], hypothesis))
+            attended_hypothesis_relations = weighted_sum(fasttext_hypothesis, p2h_attention) * relemb_premise_mask.float().unsqueeze(-1)
+            attended_premise_relations = weighted_sum(fasttext_premise, h2p_attention) * relemb_hypothesis_mask.float().unsqueeze(-1)
+        elif self._ablation_type == 'max' or self._ablation_type  == 'attn_over_rels' or self._ablation_type == 'attn_over_args':
+            relemb_premise_mask = 1 - (torch.eq(premise['relemb_tokens'], 0).long() + torch.eq(premise['relemb_tokens'], 1).long())
+            relemb_hypothesis_mask = 1 - (torch.eq(hypothesis['relemb_tokens'], 0).long() + torch.eq(hypothesis['relemb_tokens'], 1).long())
+            premise_as_args = self.get_argument_rep(premise['relemb_tokens'])
+            hypothesis_as_args = self.get_argument_rep(hypothesis['relemb_tokens'])
+            batch_size, premise_len, dim = premise_as_args.size()
+            batch_size, hypothesis_len, _ = hypothesis_as_args.size()
+
+            if self._ablation_type  == 'attn_over_rels':
+                p2h_relations = self._relemb_dropout(self.get_relation_embedding(premise_as_args, hypothesis_as_args))
+                h2p_relations = self._relemb_dropout(self.get_relation_embedding(hypothesis_as_args, premise_as_args))
+
+                attended_hypothesis_relations = weighted_sum(p2h_relations, p2h_attention)
+                attended_premise_relations = weighted_sum(h2p_relations, h2p_attention)
+            else:
+                p2h_arg_attention, h2p_arg_attention = p2h_attention, h2p_attention
+                if self._ablation_type == 'max':
+                    matrix = self._matrix_attention(embedded_premise, embedded_hypothesis)
+                    p2h = last_dim_softmax(matrix, hypothesis_mask)
+                    h2p = last_dim_softmax(matrix.transpose(1,2).contiguous(), premise_mask)
+                    p2h_arg_attention = self.get_max_attn_matrix(p2h)
+                    h2p_arg_attention = self.get_max_attn_matrix(h2p)
+                attended_premise_args = weighted_sum(premise_as_args, h2p_arg_attention).contiguous().view(-1, dim)
+                attended_hypothesis_args = weighted_sum(hypothesis_as_args, p2h_arg_attention).contiguous().view(-1, dim)
+                flat_premise, flat_hypothesis = premise_as_args.contiguous().view(-1, dim), hypothesis_as_args.contiguous().view(-1, dim)
+                attended_hypothesis_relations = self._relemb_dropout(self.relemb.predict_relations(flat_premise, attended_hypothesis_args)).contiguous().view(batch_size, premise_len, -1)
+                attended_premise_relations = self._relemb_dropout(self.relemb.predict_relations(flat_hypothesis, attended_premise_args)).contiguous().view(batch_size, hypothesis_len, -1)
+            attended_hypothesis_relations = attended_hypothesis_relations * relemb_premise_mask.float().unsqueeze(-1)
+            attended_premise_relations = attended_premise_relations * relemb_hypothesis_mask.float().unsqueeze(-1)
+
+
 
         # the "enhancement" layer
         premise_enhanced = torch.cat(
                 [encoded_premise, attended_hypothesis,
                  encoded_premise - attended_hypothesis,
-                 encoded_premise * attended_hypothesis],
+                 encoded_premise * attended_hypothesis,
+                 attended_hypothesis_relations],
                 dim=-1
         )
         hypothesis_enhanced = torch.cat(
                 [encoded_hypothesis, attended_premise, 
                  encoded_hypothesis - attended_premise,
-                 encoded_hypothesis * attended_premise],
+                 encoded_hypothesis * attended_premise,
+                 attended_premise_relations],
                 dim=-1
         )
 
@@ -254,9 +344,19 @@ class ESIM(Model):
         regularizer = RegularizerApplicator.from_params(params.pop('regularizer', []))
 
         dropout = params.pop("dropout", 0)
+        relemb_dropout = params.pop("relemb_dropout", 0)
+        pretrained_file = params.pop('model_file')
+        config_file = params.pop('config_file')
+        ablation_type = params.pop('ablation_type', 'vanilla')
+        embedding_keys = params.pop('embedding_keys', ['tokens'])
+        relemb_config = get_config(config_file, params.pop('experiment', 'multiplication')) if not ablation_type.startswith('vanilla') else None
 
         params.assert_empty(cls.__name__)
         return cls(vocab=vocab,
+                   embedding_keys=embedding_keys,
+                   ablation_type=ablation_type,
+                   relemb_config=relemb_config,
+                   relemb_model_file=pretrained_file,
                    text_field_embedder=text_field_embedder,
                    encoder=encoder,
                    similarity_function=similarity_function,
@@ -266,4 +366,5 @@ class ESIM(Model):
                    output_logit=output_logit,
                    initializer=initializer,
                    dropout=dropout,
+                   relemb_dropout=relemb_dropout,
                    regularizer=regularizer)
