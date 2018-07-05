@@ -19,17 +19,18 @@ def read_predictions_file(fname, data):
     return all_data
 
 
-def read_jsonl_file(data_f):
+def read_jsonl_file(fname):
     f = open(fname, encoding='utf-8')
     preds = []
     for line in f:
-        preds.append(josn.loads(line))
+        preds.append(json.loads(line))
     return preds
 
 def print_relevant(pred):
     print('premise:', pred['premise'])
     print('hypothesis:', pred['hypothesis'])
-    print('gold:', pred['gold_label'], 'pred', pred['pred_label'])
+    print('gold:', pred['gold_label'])
+    print('pred:', pred['pred_label'])
 
 
 def analyse_positives(baseline_f, model_f, data_f):
@@ -37,11 +38,14 @@ def analyse_positives(baseline_f, model_f, data_f):
     baseline_preds = read_predictions_file(baseline_f, data)
     model_preds = read_predictions_file(model_f, data)
     positives = []
+    count = 0
     for baseline_pred, model_pred in zip(baseline_preds, model_preds):
         if baseline_pred['gold_label'] != baseline_pred['pred_label'] and model_pred['gold_label'] == model_pred['pred_label']:
             print_relevant(model_pred)
-            print_relevant(baseline_pred)
+            print('baseline:', baseline_pred['pred_label'])
             print('\n')
+            count += 1
+    print('count', count)
 
 import sys
 baseline_f = sys.argv[1]
