@@ -13,7 +13,6 @@ from allennlp.common.checks import check_dimensions_match
 from allennlp.data import Vocabulary
 from allennlp.models.model import Model
 from allennlp.modules import FeedForward
-from allennlp.modules.matrix_attention import DotProductMatrixAttention
 from allennlp.modules import Seq2SeqEncoder, SimilarityFunction, TimeDistributed, TextFieldEmbedder
 from allennlp.nn import InitializerApplicator, RegularizerApplicator
 from allennlp.nn.util import get_text_field_mask, last_dim_softmax, weighted_sum, replace_masked_values
@@ -112,6 +111,7 @@ class RelembESIM(Model):
 
         self._text_field_embedder = text_field_embedder
         self._encoder = encoder
+        from allennlp.modules.matrix_attention import DotProductMatrixAttention
 
         self._matrix_attention = DotProductMatrixAttention()
         self._projection_feedforward = projection_feedforward
