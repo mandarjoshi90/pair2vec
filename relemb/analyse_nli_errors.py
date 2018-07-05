@@ -1,6 +1,6 @@
 import json
 
-def get_best_label(probs, labels=['entailment', 'contradiction', 'neutral'])
+def get_best_label(probs, labels=['entailment', 'contradiction', 'neutral']):
     best_label, best = labels[0], probs[0]
     for prob, label in zip(probs[1:], labels[1:]):
         if prob > best:
@@ -46,6 +46,5 @@ def analyse_positives(baseline_f, model_f, data_f):
 import sys
 baseline_f = sys.argv[1]
 model_f = sys.argv[2]
-baseline_preds = read_predictions_file(baseline_f)
-model_preds = read_predictions_file(model_f)
-analyse_positives(baseline_preds, model_preds)
+data_f = sys.argv[3]
+analyse_positives(baseline_f, model_f, data_f)
