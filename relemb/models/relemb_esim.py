@@ -4,10 +4,10 @@
 #   doc
 
 from typing import Dict, Optional
-
+from torch.nn import Linear
 import torch
 from torch.autograd import Variable
-
+from torch.nn.functional import normalize
 from allennlp.common import Params
 from allennlp.common.checks import check_dimensions_match
 from allennlp.data import Vocabulary
@@ -82,6 +82,8 @@ class RelembESIM(Model):
                  relemb_config,
                  relemb_model_file,
                  text_field_embedder: TextFieldEmbedder,
+                 relemb_encoder,
+                 # embedding_projection,
                  encoder: Seq2SeqEncoder,
                  similarity_function: SimilarityFunction,
                  projection_feedforward: FeedForward,
@@ -110,11 +112,14 @@ class RelembESIM(Model):
         self._embedding_keys = embedding_keys
 
         self._text_field_embedder = text_field_embedder
+        self._projection_feedforward = projection_feedforward
+        # self._embedding_projection = embedding_projection
         self._encoder = encoder
         from allennlp.modules.matrix_attention import DotProductMatrixAttention
 
         self._matrix_attention = DotProductMatrixAttention()
-        self._projection_feedforward = projection_feedforward
+        self._relemb_encoder = relemb_encoder
+
 
         self._inference_encoder = inference_encoder
         self._relemb_dropout = torch.nn.Dropout(relemb_dropout)
@@ -198,6 +203,7 @@ class RelembESIM(Model):
         # embedded_hypothesis = self._text_field_embedder(hypothesis)
         premise_mask = get_text_field_mask(premise).float()
         hypothesis_mask = get_text_field_mask(hypothesis).float()
+        # similarity_matrix = self._matrix_attention(self._embedding_projection(embedded_premise), self._embedding_projection(embedded_hypothesis))
 
         # apply dropout for LSTM
         if self.rnn_input_dropout:
@@ -208,8 +214,12 @@ class RelembESIM(Model):
         encoded_premise = self._encoder(embedded_premise, premise_mask)
         encoded_hypothesis = self._encoder(embedded_hypothesis, hypothesis_mask)
 
+        # encoded_premise = self._relemb_dropout(encoded_premise)
+        # encoded_hypothesis = self._relemb_dropout(encoded_hypothesis)
+
         # Shape: (batch_size, premise_length, hypothesis_length)
         similarity_matrix = self._matrix_attention(encoded_premise, encoded_hypothesis)
+        # similarity_matrix = self._matrix_attention(self._embedding_projection(torch.cat((embedded_premise, encoded_premise), -1)), self._embedding_projection(torch.cat((embedded_hypothesis, encoded_hypothesis), -1)))
 
         # Shape: (batch_size, premise_length, hypothesis_length)
         p2h_attention = last_dim_softmax(similarity_matrix, hypothesis_mask)
@@ -230,35 +240,48 @@ class RelembESIM(Model):
         elif self._ablation_type == 'max' or self._ablation_type  == 'attn_over_rels' or self._ablation_type == 'attn_over_args':
             relemb_premise_mask = 1 - (torch.eq(premise['relemb_tokens'], 0).long() + torch.eq(premise['relemb_tokens'], 1).long())
             relemb_hypothesis_mask = 1 - (torch.eq(hypothesis['relemb_tokens'], 0).long() + torch.eq(hypothesis['relemb_tokens'], 1).long())
+            # eq_mask = 1.0 - (relemb_premise_mask.unsqueeze(2).expand_as(p2h_attention) - relemb_hypothesis_mask.unsqueeze(1).expand_as(p2h_attention)).float()
             premise_as_args = self.get_argument_rep(premise['relemb_tokens'])
             hypothesis_as_args = self.get_argument_rep(hypothesis['relemb_tokens'])
             batch_size, premise_len, dim = premise_as_args.size()
             batch_size, hypothesis_len, _ = hypothesis_as_args.size()
 
             if self._ablation_type  == 'attn_over_rels':
-                p2h_relations = self._relemb_dropout(self.get_relation_embedding(premise_as_args, hypothesis_as_args))
-                h2p_relations = self._relemb_dropout(self.get_relation_embedding(hypothesis_as_args, premise_as_args))
+                p2h_relations = (normalize(self.get_relation_embedding(premise_as_args, hypothesis_as_args), dim=-1))
+                h2p_relations = (normalize(self.get_relation_embedding(hypothesis_as_args, premise_as_args), dim=-1))
+                # p2h_relations = p2h_relations * eq_mask.unsqueeze(3)
+                # h2p_relations = h2p_relations * eq_mask.transpose(1,2).unsqueeze(3)
 
-                attended_hypothesis_relations = weighted_sum(p2h_relations, p2h_attention)
-                attended_premise_relations = weighted_sum(h2p_relations, h2p_attention)
+                attended_hypothesis_relations = self._relemb_dropout(weighted_sum(p2h_relations, p2h_attention))
+                attended_premise_relations = self._relemb_dropout(weighted_sum(h2p_relations, h2p_attention))
             else:
                 p2h_arg_attention, h2p_arg_attention = p2h_attention, h2p_attention
+                # premise_as_args = normalize(premise_as_args, dim=-1)
+                # hypothesis_as_args = normalize(hypothesis_as_args, dim=-1)
                 if self._ablation_type == 'max':
                     matrix = self._matrix_attention(embedded_premise, embedded_hypothesis)
                     p2h = last_dim_softmax(matrix, hypothesis_mask)
                     h2p = last_dim_softmax(matrix.transpose(1,2).contiguous(), premise_mask)
                     p2h_arg_attention = self.get_max_attn_matrix(p2h)
                     h2p_arg_attention = self.get_max_attn_matrix(h2p)
-                attended_premise_args = weighted_sum(premise_as_args, h2p_arg_attention).contiguous().view(-1, dim)
-                attended_hypothesis_args = weighted_sum(hypothesis_as_args, p2h_arg_attention).contiguous().view(-1, dim)
+                attended_premise_args = weighted_sum(premise_as_args, h2p_arg_attention) #.contiguous().view(-1, dim)
+                attended_hypothesis_args = weighted_sum(hypothesis_as_args, p2h_arg_attention) #.contiguous().view(-1, dim)
                 flat_premise, flat_hypothesis = premise_as_args.contiguous().view(-1, dim), hypothesis_as_args.contiguous().view(-1, dim)
-                attended_hypothesis_relations = self._relemb_dropout(self.relemb.predict_relations(flat_premise, attended_hypothesis_args)).contiguous().view(batch_size, premise_len, -1)
-                attended_premise_relations = self._relemb_dropout(self.relemb.predict_relations(flat_hypothesis, attended_premise_args)).contiguous().view(batch_size, hypothesis_len, -1)
+                # attended_hypothesis_relations = normalize(self.relemb.predict_relations(flat_premise, attended_hypothesis_args.contiguous().view(-1, dim))).contiguous().view(batch_size, premise_len, -1)
+                # attended_premise_relations = normalize(self.relemb.predict_relations(flat_hypothesis, attended_premise_args.contiguous().view(-1, dim))).contiguous().view(batch_size, hypothesis_len, -1)
+                attended_hypothesis_relations = (self.relemb.predict_relations(flat_premise, attended_hypothesis_args.contiguous().view(-1, dim))).contiguous().view(batch_size, premise_len, -1)
+                attended_premise_relations = (self.relemb.predict_relations(flat_hypothesis, attended_premise_args.contiguous().view(-1, dim))).contiguous().view(batch_size, hypothesis_len, -1)
+                attended_premise_relations = self._relemb_dropout(attended_premise_relations)
+                attended_hypothesis_relations = self._relemb_dropout(attended_hypothesis_relations)
             attended_hypothesis_relations = attended_hypothesis_relations * relemb_premise_mask.float().unsqueeze(-1)
             attended_premise_relations = attended_premise_relations * relemb_hypothesis_mask.float().unsqueeze(-1)
+            # attended_premise_relations = torch.cat((attended_premise_relations, hypothesis_as_args - attended_premise_args), -1)
+            # attended_hypothesis_relations = torch.cat((attended_hypothesis_relations, premise_as_args - attended_hypothesis_args), -1)
 
 
-
+        if self._relemb_encoder is not None:
+            attended_hypothesis_relations = self._relemb_encoder(self.rnn_input_dropout(attended_hypothesis_relations), relemb_premise_mask)
+            attended_premise_relations = self._relemb_encoder(self.rnn_input_dropout(attended_premise_relations), relemb_hypothesis_mask)
         # the "enhancement" layer
         premise_enhanced = torch.cat(
                 [encoded_premise, attended_hypothesis,
@@ -337,6 +360,9 @@ class RelembESIM(Model):
         encoder = Seq2SeqEncoder.from_params(params.pop("encoder"))
         similarity_function = SimilarityFunction.from_params(params.pop("similarity_function"))
         projection_feedforward = FeedForward.from_params(params.pop('projection_feedforward'))
+        # embedding_projection = Linear(text_field_embedder.get_output_dim() + encoder.get_output_dim(), text_field_embedder.get_output_dim())
+        relemb_encoder_params = params.pop("relemb_encoder", None)
+        relemb_encoder = Seq2SeqEncoder.from_params(relemb_encoder_params) if relemb_encoder_params is not None else None
         inference_encoder = Seq2SeqEncoder.from_params(params.pop("inference_encoder"))
         output_feedforward = FeedForward.from_params(params.pop('output_feedforward'))
         output_logit = FeedForward.from_params(params.pop('output_logit'))
@@ -358,6 +384,8 @@ class RelembESIM(Model):
                    relemb_config=relemb_config,
                    relemb_model_file=pretrained_file,
                    text_field_embedder=text_field_embedder,
+                   relemb_encoder=relemb_encoder,
+                   # embedding_projection=embedding_projection,
                    encoder=encoder,
                    similarity_function=similarity_function,
                    projection_feedforward=projection_feedforward,
