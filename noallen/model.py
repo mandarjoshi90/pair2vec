@@ -2,7 +2,7 @@ import torch
 from torch.autograd import Variable
 from typing import Dict
 from torch.nn import Module, Linear, Dropout, Sequential, Embedding, LogSigmoid, ReLU
-from torch.nn.functional import sigmoid, logsigmoid, softmax
+from torch.nn.functional import sigmoid, logsigmoid, softmax, normalize
 from allennlp.nn.util import get_text_field_mask
 from noallen.representation import SpanRepresentation, PositionalRepresentation, LRPositionalRepresentation
 from torch.nn.init import xavier_normal
@@ -319,6 +319,7 @@ class MLP(Module):
         super(MLP, self).__init__()
         self.dropout = Dropout(p=config.dropout)
         self.nonlinearity  = ReLU()
+        self.normalize = normalize if getattr(config, 'normalize_args', False) else (lambda x : x)
         # self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
         #self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
         self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
@@ -326,6 +327,8 @@ class MLP(Module):
     
     def forward(self, subjects, objects):
         #return self.mlp(torch.cat([subjects, objects, subjects * objects, subjects - objects], dim=-1))
+        subjects = self.normalize(subjects)
+        objects = self.normalize(objects)
         return self.mlp(torch.cat([subjects, objects, subjects * objects], dim=-1))
 
 
