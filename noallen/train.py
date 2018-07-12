@@ -137,7 +137,7 @@ def train(train_data, dev_data, train_iterator, dev_iterator, model, config, opt
             elif iterations % config.log_every == 0:
                 stats_logger.log( epoch, iterations, batch_index, train_eval_stats, dev_eval_stats)
         train_loss = train_eval_stats.average()[0]
-        util.save_checkpoint(config, model, opt, epoch, iterations, train_eval_stats, dev_eval_stats, 'epoch_train_snapshot')
+        util.save_checkpoint(config, model, opt, epoch, iterations, train_eval_stats, dev_eval_stats, 'epoch_train_snapshot', remove=False)
 
 
 def rescale_gradients(model, grad_norm):
