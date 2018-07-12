@@ -12,8 +12,9 @@ logger = logging.getLogger(__name__)
 
 def load_model(resume_snapshot, model):
     if os.path.isfile(resume_snapshot):
-        logger.info("Loading checkpoint '{}'".format(resume_snapshot))
         checkpoint = torch.load(resume_snapshot)
+        print("Loaded checkpoint '{}' (epoch {} iter: {} train_loss: {}, dev_loss: {}, train_pos:{}, train_neg: {}, dev_pos: {}, dev_neg: {})"
+              .format(resume_snapshot, checkpoint['epoch'], checkpoint['iterations'], checkpoint['train_loss'], checkpoint['dev_loss'], checkpoint['train_pos'], checkpoint['train_neg'], checkpoint['dev_pos'], checkpoint['dev_neg']))
         model.load_state_dict(checkpoint['state_dict'])
     else:
         logger.info("No checkpoint found at '{}'".format(resume_snapshot))
@@ -32,7 +33,7 @@ def resume_from(resume_snapshot, model, optimizer):
         logger.info("No checkpoint found at '{}'".format(resume_snapshot))
         return None
 
-def save_checkpoint(config, model, optimizer, epoch, iterations, train_eval_stats, dev_eval_stats, name):
+def save_checkpoint(config, model, optimizer, epoch, iterations, train_eval_stats, dev_eval_stats, name, remove=True):
     # save config
     config.dump_to_file(os.path.join(config.save_path, "saved_config.json"))
 
@@ -56,9 +57,10 @@ def save_checkpoint(config, model, optimizer, epoch, iterations, train_eval_stat
             'optimizer' : optimizer.state_dict(),
         }
     torch.save(state, snapshot_path)
-    for f in glob.glob(snapshot_prefix + '*'):
-        if f != snapshot_path:
-            os.remove(f)
+    if remove:
+        for f in glob.glob(snapshot_prefix + '*'):
+            if f != snapshot_path:
+                os.remove(f)
 
 
 def pretrained_embeddings_or_xavier(config, embedding, vocab, namespace):
