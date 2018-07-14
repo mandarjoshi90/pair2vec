@@ -122,7 +122,7 @@ class RelembESIM(Model):
 
 
         self._inference_encoder = inference_encoder
-        self._relemb_dropout = torch.nn.Dropout(relemb_dropout)
+        self._relemb_dropout = VariationalDropout(relemb_dropout)
 
         if dropout:
             self.dropout = torch.nn.Dropout(dropout)
@@ -136,8 +136,8 @@ class RelembESIM(Model):
 
         self._num_labels = vocab.get_vocab_size(namespace="labels")
 
-        check_dimensions_match(text_field_embedder.get_output_dim(), encoder.get_input_dim(),
-                               "text field embedding dim", "encoder input dim")
+        # check_dimensions_match(text_field_embedder.get_output_dim(), encoder.get_input_dim(),
+                               # "text field embedding dim", "encoder input dim")
         check_dimensions_match(projection_feedforward.get_output_dim(), inference_encoder.get_input_dim(),
                                "proj feedforward output dim", "inference lstm input dim")
 
@@ -199,6 +199,12 @@ class RelembESIM(Model):
         """
         embedded_premise = self.get_embedding(self._embedding_keys, premise)
         embedded_hypothesis = self.get_embedding(self._embedding_keys, hypothesis)
+        premise_as_args = self.get_argument_rep(premise['relemb_tokens'])
+        hypothesis_as_args = self.get_argument_rep(hypothesis['relemb_tokens'])
+
+        embedded_premise = torch.cat((embedded_premise, premise_as_args), dim=-1)
+        embedded_hypothesis = torch.cat((embedded_hypothesis, hypothesis_as_args), dim=-1)
+
         # embedded_premise = self._text_field_embedder(premise)
         # embedded_hypothesis = self._text_field_embedder(hypothesis)
         premise_mask = get_text_field_mask(premise).float()
@@ -241,8 +247,8 @@ class RelembESIM(Model):
             relemb_premise_mask = 1 - (torch.eq(premise['relemb_tokens'], 0).long() + torch.eq(premise['relemb_tokens'], 1).long())
             relemb_hypothesis_mask = 1 - (torch.eq(hypothesis['relemb_tokens'], 0).long() + torch.eq(hypothesis['relemb_tokens'], 1).long())
             # eq_mask = 1.0 - (relemb_premise_mask.unsqueeze(2).expand_as(p2h_attention) - relemb_hypothesis_mask.unsqueeze(1).expand_as(p2h_attention)).float()
-            premise_as_args = self.get_argument_rep(premise['relemb_tokens'])
-            hypothesis_as_args = self.get_argument_rep(hypothesis['relemb_tokens'])
+            # premise_as_args = self.get_argument_rep(premise['relemb_tokens'])
+            # hypothesis_as_args = self.get_argument_rep(hypothesis['relemb_tokens'])
             batch_size, premise_len, dim = premise_as_args.size()
             batch_size, hypothesis_len, _ = hypothesis_as_args.size()
 
@@ -254,6 +260,8 @@ class RelembESIM(Model):
 
                 attended_hypothesis_relations = self._relemb_dropout(weighted_sum(p2h_relations, p2h_attention))
                 attended_premise_relations = self._relemb_dropout(weighted_sum(h2p_relations, h2p_attention))
+                # attended_hypothesis_relations = self._relemb_dropout(torch.cat((premise_as_args, weighted_sum(p2h_relations, p2h_attention)), -1))
+                # attended_premise_relations = self._relemb_dropout(torch.cat((hypothesis_as_args, weighted_sum(h2p_relations, h2p_attention)), -1))
             else:
                 p2h_arg_attention, h2p_arg_attention = p2h_attention, h2p_attention
                 # premise_as_args = normalize(premise_as_args, dim=-1)
