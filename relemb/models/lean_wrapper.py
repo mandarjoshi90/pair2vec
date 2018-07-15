@@ -18,7 +18,7 @@ import os
 from noallen.torchtext.vocab import Vocab
 from noallen.torchtext.matrix_data import create_vocab
 from noallen.torchtext.indexed_field import Field
-
+from torch.nn.functional import normalize
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 @Model.register("lean_wrapper")
@@ -44,7 +44,7 @@ class LeanWrapper(Model):
         self._mrr = MRR()
         self._hits_at_k = None
         self._sampled_rel_embed, self._sampled_rel_phrases = torch.load(sampled_relations_file)
-        self._sampled_rel_embed = torch.stack(self._sampled_rel_embed)
+        self._sampled_rel_embed = normalize(torch.stack(self._sampled_rel_embed), dim=-1)
         logger.info("|E| = {}, |R| = {}, |S| = {}".format(vocab.get_vocab_size("tokens"), vocab.get_vocab_size("relation_labels"), self._sampled_rel_embed.size(0)))
         # self.init()
 
@@ -66,14 +66,19 @@ class LeanWrapper(Model):
         else:
             mask = get_text_field_mask(observed_relations)
             observed_relations = observed_relations['tokens'] + (1 - mask.long()) 
+            print(observed_relations)
             relations = [r for r in self.noallen_model.to_tensors([observed_relations])][0]
             #import ipdb
             #ipdb.set_trace()
-            relation_embedding = self.noallen_model.represent_relations(relations)
-            relation_scores = torch.sigmoid(torch.mm(self.noallen_model.predict_relations(subject_embedding, object_embedding), relation_embedding.transpose(0, 1)))
+            # relation_embedding = self.noallen_model.represent_relations(relations)
+            relation_embedding = normalize(self.noallen_model.represent_relations(relations), dim=-1)
+            relation_scores = torch.sigmoid(torch.mm(normalize(self.noallen_model.predict_relations(subject_embedding, object_embedding)), relation_embedding.transpose(0, 1)))
 
+            # sampled_relation_scores = torch.sigmoid(
+                # torch.mm(self.noallen_model.predict_relations(subject_embedding, object_embedding),
+                         # self._sampled_rel_embed.transpose(0, 1)))
             sampled_relation_scores = torch.sigmoid(
-                torch.mm(self.noallen_model.predict_relations(subject_embedding, object_embedding),
+                torch.mm(normalize(self.noallen_model.predict_relations(subject_embedding, object_embedding)),
                          self._sampled_rel_embed.transpose(0, 1)))
             topk_sampled = self._get_topk_sampled_relations(sampled_relation_scores)
             output_dict = {'given_relation_score' : relation_scores, "topk_sampled": topk_sampled}
@@ -94,7 +99,7 @@ class LeanWrapper(Model):
             topk.append(top)
         return topk
 
-    def _get_topk_sampled_relations(self, relation_scores, k=15):
+    def _get_topk_sampled_relations(self, relation_scores, k=350):
         values, indices = torch.topk(relation_scores, 3*k, dim=-1)
         topk = []
         batch_size, num_relations = relation_scores.size()
