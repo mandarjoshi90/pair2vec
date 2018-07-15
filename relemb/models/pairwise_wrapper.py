@@ -38,6 +38,7 @@ class PairwiseWrapper(Model):
         arg_vocab = field.vocab
         rel_vocab = arg_vocab
         config.n_args = len(arg_vocab)
+        self.vocab = vocab
 
         self.noallen_model = PairwiseRelationalEmbeddingModel(config, arg_vocab, rel_vocab)
         load_model(pretrained_file, self.noallen_model)
@@ -52,7 +53,8 @@ class PairwiseWrapper(Model):
         # import ipdb
         # ipdb.set_trace()
         # subjects, objects = (subjects['tokens'] ).squeeze(-1), (objects['tokens'] ).squeeze(-1)
-        pairs = pairs.squeeze(-1)
+        pairs = pairs.squeeze(-1) 
+        print(pairs.data.numpy())
         #subject_mask, object_mask = get_text_field_mask(subjects),  get_text_field_mask(objects)
         #subjects, objects = subjects['tokens'] + (1 - subject_mask.long()) , objects['tokens'] + (1 - object_mask.long()) 
 
