@@ -63,7 +63,8 @@ class TripleReader(DatasetReader):
         else:
             sub_id, obj_id = self.vocab.stoi[subject], self.vocab.stoi[obj]
             pair_id = self.pair_to_index[(sub_id, obj_id)]
-            fields['pairs'] = LabelField(pair_id, label_namespace='pairs', skip_indexing=True)
+            fields['pairs'] = LabelField(pair_id, label_namespace='pair_labels', skip_indexing=True)
+            print(sub_id, obj_id, pair_id, fields['pairs']._label_id)
 
         metadata = {"count": count, "relation_phrases": relation, 'subjects': subject, 'objects': obj}
         fields['metadata'] = MetadataField(metadata)
