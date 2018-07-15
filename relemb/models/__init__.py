@@ -9,3 +9,4 @@ from relemb.models.pairwise_wrapper import PairwiseWrapper
 from relemb.models.dat_modified import ModifiedDecomposableAttention
 from relemb.models.vanilla_dam import VanillaDam
 from relemb.models.relemb_esim import RelembESIM
+from relemb.models.document_qa import DocQANoAnswer
