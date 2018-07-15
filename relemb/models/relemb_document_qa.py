@@ -13,27 +13,18 @@ from allennlp.modules import Seq2SeqEncoder, TimeDistributed, TextFieldEmbedder,
 from relemb.modules import TriLinearAttention
 from allennlp.nn import InitializerApplicator, util
 from allennlp.training.metrics import Average, BooleanAccuracy, CategoricalAccuracy
+from noallen.torchtext.vocab import Vocab
+from noallen.torchtext.matrix_data import create_vocab
+from noallen.torchtext.indexed_field import Field
+from noallen.util import load_model, get_config
+from noallen.model import RelationalEmbeddingModel
+from torch.nn.functional import normalize
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
-def repeat_question(question_tensor: Variable, num_paragraphs: int) -> Variable:
-    """
-    Turns a (batch_size, num_tokens, input_dim) tensor representing a question into a
-    (batch_size * num_paragraphs, num_tokens, input_dim) tensor to be paired with each paragraph.
-    """
-    if num_paragraphs == 1:
-        return question_tensor
-    old_size = question_tensor.size()
-    # question_tensor is (batch_size, sequence_length, input_dim)
-    # .unsqueeze(1) is (batch_size, 1, sequence_length, input_dim)
-    # .repeat() is (batch_size, num_paragraphs, sequence_length, input_dim)
-    # .view() is (batch_size * num_paragraphs, sequence_length, input_dim)
-    tensor = question_tensor.unsqueeze(1).repeat(torch.Size([1] + [num_paragraphs] + [1] * (len(old_size) - 1)))
-    tensor = tensor.view(torch.Size([old_size[0] * num_paragraphs]) + old_size[1:])
-    return tensor
 
-@Model.register("docqa-no-answer")
-class DocQANoAnswer(Model):
+@Model.register("relemb-docqa-no-answer")
+class RelembDocQANoAnswer(Model):
     """
     This class implements Christopher Clark and Matt Gardner's
     `Multi-Paragraph Reading Comprehension
@@ -47,15 +38,36 @@ class DocQANoAnswer(Model):
                  span_start_encoder: Seq2SeqEncoder,
                  span_end_encoder: Seq2SeqEncoder,
                  no_answer_scorer: FeedForward,
+                 ablation_type: str,
+                 relemb_config,
+                 relemb_model_file,
+                 relemb_dropout: float,
+                 embedding_keys,
                  initializer: InitializerApplicator,
                  dropout: float = 0.2,
                  mask_lstms: bool = True) -> None:
         super().__init__(vocab)
+        self._ablation_type = ablation_type
+        self.relemb_model_file = relemb_model_file
+        if ablation_type == 'attn_over_args' or ablation_type == 'attn_over_rels' or ablation_type == 'max':
+            field = Field(batch_first=True)
+            create_vocab(relemb_config, field)
+            arg_vocab = field.vocab
+            rel_vocab = arg_vocab
+            relemb_config.n_args = len(arg_vocab)
+
+            self.relemb = RelationalEmbeddingModel(relemb_config, arg_vocab, rel_vocab)
+            load_model(relemb_model_file, self.relemb)
+            for param in self.relemb.parameters():
+                param.requires_grad = False
+            self.relemb.represent_relations = None
 
         self._text_field_embedder = text_field_embedder
+        self._relemb_dropout = torch.nn.Dropout(relemb_dropout)
+        self._embedding_keys = embedding_keys
         # output: (batch_size, num_tokens, embedding_dim)
 
-        assert text_field_embedder.get_output_dim() == phrase_layer.get_input_dim()
+        # assert text_field_embedder.get_output_dim() == phrase_layer.get_input_dim()
         self._phrase_layer = phrase_layer
         encoding_dim = phrase_layer.get_output_dim()
         # output: (batch_size, num_tokens, encoding_dim)
@@ -64,7 +76,7 @@ class DocQANoAnswer(Model):
         self._passage_word_linear =  TimeDistributed(torch.nn.Linear(span_start_encoder.get_input_dim(), 1))
         # output: (batch_size, num_tokens, num_tokens)
 
-        self._merge_atten = TimeDistributed(torch.nn.Linear(encoding_dim * 4, encoding_dim))
+        self._merge_atten = TimeDistributed(torch.nn.Linear(600 + encoding_dim * 4, encoding_dim))
 
         self._residual_encoder = residual_encoder
         self._no_answer_scorer = no_answer_scorer
@@ -91,12 +103,33 @@ class DocQANoAnswer(Model):
             self._dropout = lambda x: x
         self._mask_lstms = mask_lstms
 
+    def get_embedding(self, keys, text_field_input):
+        token_vectors = None
+        for key in keys:
+            tensor = text_field_input[key]
+            embedder = getattr(self._text_field_embedder, 'token_embedder_{}'.format(key)) if key != 'relemb_tokens' else self.get_argument_rep
+            embedding = embedder(tensor)
+            token_vectors = embedding if token_vectors is None else torch.cat((token_vectors, embedding), -1)
+        return token_vectors
+
+    # tokens : bs, sl
+    def get_argument_rep(self, tokens):
+        batch_size, seq_len = tokens.size()
+        argument_embedding = self.relemb.represent_arguments(tokens.view(-1, 1)).view(batch_size, seq_len, -1)
+        return argument_embedding
+
+
+    def get_relation_embedding(self, seq1, seq2):
+        (batch_size, sl1, dim), (_, sl2, _) = seq1.size(),seq2.size()
+        seq1 = seq1.unsqueeze(2).expand(batch_size, sl1, sl2, dim).contiguous().view(-1, dim)
+        seq2 = seq2.unsqueeze(1).expand(batch_size, sl1, sl2, dim).contiguous().view(-1, dim)
+        relation_embedding = self.relemb.predict_relations(seq1, seq2).contiguous().view(batch_size, sl1, sl2, dim)
+        return relation_embedding
+
     def forward(self,  # type: ignore
                 question: Dict[str, torch.LongTensor],
-                # paragraphs: Dict[str, torch.LongTensor],
-                passage,
+                passage: Dict[str, torch.LongTensor],
                 spans: torch.IntTensor = None,
-                # span_end: torch.IntTensor = None,
                 metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
         # pylint: disable=arguments-differ
         """
@@ -146,8 +179,19 @@ class DocQANoAnswer(Model):
         batch_size, num_tokens = passage['tokens'].size()
 
         # Send through text-field embedder
+        relemb_passage_tokens = passage['relemb_tokens']
+        relemb_question_tokens = question['relemb_tokens']
+        del passage['relemb_tokens']
+        del question['relemb_tokens']
         embedded_question = self._dropout(self._text_field_embedder(question))
         embedded_passage = self._dropout(self._text_field_embedder(passage))
+        # embedded_question = self._dropout(self.get_embedding(self._embedding_keys, question))
+        # embedded_passage = self._dropout(self.get_embedding(self._embedding_keys, passage))
+        passage_as_args = self.get_argument_rep(relemb_passage_tokens)
+        question_as_args = self.get_argument_rep(relemb_question_tokens)
+
+        embedded_passage = torch.cat((embedded_passage, passage_as_args), dim=-1)
+        embedded_question = torch.cat((embedded_question, question_as_args), dim=-1)
 
         # Extended batch size takes into account batch size * num paragraphs
         extended_batch_size = embedded_question.size(0)
@@ -190,7 +234,7 @@ class DocQANoAnswer(Model):
         # Shape: (extended_batch_size, passage_length)
         question_passage_attention = util.masked_softmax(question_passage_similarity, passage_mask)
 
-        # Shape: (extended_batch_size, encoding_dim)
+        # Shape: (extended_batch_size, encoding_dim),
         # these are the q_c in the paper
         question_passage_vector = util.weighted_sum(encoded_passage, question_passage_attention)
 
@@ -198,12 +242,23 @@ class DocQANoAnswer(Model):
         tiled_question_passage_vector = question_passage_vector.unsqueeze(1).expand(extended_batch_size,
                                                                                     passage_length,
                                                                                     encoding_dim)
+        if self._ablation_type  == 'attn_over_rels':
+            p2q_relations = (normalize(self.get_relation_embedding(passage_as_args, question_as_args), dim=-1))
+            q2p_relations = (normalize(self.get_relation_embedding(question_as_args, passage_as_args), dim=-1))
+            # p2h_relations = p2h_relations * eq_mask.unsqueeze(3)
+            # h2p_relations = h2p_relations * eq_mask.transpose(1,2).unsqueeze(3)
+
+            attended_question_relations = self._relemb_dropout(util.weighted_sum(p2q_relations, passage_question_attention))
+            attended_passage_relations = self._relemb_dropout(util.weighted_sum(q2p_relations.transpose(1,2), passage_question_attention))
+        else:
+            raise NotImplementedError()
 
         # Shape: (extended_batch_size, passage_length, encoding_dim * 4)
         final_merged_passage = torch.cat([encoded_passage,
                                           passage_question_vectors,
                                           encoded_passage * passage_question_vectors,
-                                          encoded_passage * tiled_question_passage_vector],
+                                          encoded_passage * tiled_question_passage_vector,
+                                          attended_passage_relations, attended_question_relations],
                                          dim=-1)
 
         # purple "linear ReLU layer"
@@ -376,6 +431,12 @@ class DocQANoAnswer(Model):
         no_answer_scorer = FeedForward.from_params(params.pop("no_answer_scorer"))
         initializer = InitializerApplicator.from_params(params.pop("initializer", []))
         dropout = params.pop('dropout', 0.2)
+        relemb_dropout = params.pop("relemb_dropout", 0)
+        pretrained_file = params.pop('model_file')
+        config_file = params.pop('config_file')
+        ablation_type = params.pop('ablation_type', 'vanilla')
+        embedding_keys = params.pop('embedding_keys', ['tokens'])
+        relemb_config = get_config(config_file, params.pop('experiment', 'multiplication')) if not ablation_type.startswith('vanilla') else None
 
         # TODO: Remove the following when fully deprecated
         evaluation_json_file = params.pop('evaluation_json_file', None)
@@ -391,6 +452,11 @@ class DocQANoAnswer(Model):
                    span_start_encoder=span_start_encoder,
                    span_end_encoder=span_end_encoder,
                    no_answer_scorer=no_answer_scorer,
+                   ablation_type=ablation_type,
+                   relemb_config=relemb_config,
+                   relemb_model_file=pretrained_file,
+                   relemb_dropout=relemb_dropout,
+                   embedding_keys=embedding_keys,
                    initializer=initializer,
                    dropout=dropout,
                    mask_lstms=mask_lstms)

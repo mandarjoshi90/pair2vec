@@ -10,3 +10,4 @@ from relemb.models.dat_modified import ModifiedDecomposableAttention
 from relemb.models.vanilla_dam import VanillaDam
 from relemb.models.relemb_esim import RelembESIM
 from relemb.models.document_qa import DocQANoAnswer
+from relemb.models.relemb_document_qa import RelembDocQANoAnswer
