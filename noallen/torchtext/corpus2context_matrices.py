@@ -13,6 +13,7 @@ from collections import defaultdict
 stop_words = set(['the', 'of', ',', 'in', 'and', 'to', '"', '(', ')', 'a', 'is', 'was', 'for', '.', '-', 'as', 'by', 'at', 'an', 'with', 'from', 'that', 'which', 'also', 'be', 'were', 'are', 'but', 'this', 'had', 'can', 'into', 'could', 'would', 'should', 'then', 'do', 'does', 'above', 'after', 'again', 'same', 'any', 'been'])
 def read_filtered_pairs(fname, vocab, thr=None, sorted_file=False, hardsample=False):
     pairs_count = {}
+    count = 1
     with open(fname, encoding='utf-8') as f:
         for line in tqdm(f):
             w1, w2, count = line.strip().split('\t')
@@ -28,7 +29,7 @@ def read_filtered_pairs(fname, vocab, thr=None, sorted_file=False, hardsample=Fa
     total = float(sum(pairs_count.values()))
     for k, count in pairs_count.items():
         pairs_count[k] /= total
-    print('total {}, min {}'.format(total, thr / total))
+    # print('total {}, min {}'.format(total, thr / total))
     return pairs_count
 
 def read_pair_vocab(fname, vocab):
@@ -59,7 +60,7 @@ def main():
         corpus2triplet_matrices.py [options] <corpus> <triplets_dir> 
     
     Options:
-        --sample NUM        sampling type is None (0), hardsample (1), soft sample (2) [default: 2]
+        --sample NUM        sampling type is None (0), hardsample (1), soft sample (2) [default: 0]
         --reverse NUM       whether to add the reversed context [default: 0]
         --pair_vocab NUM    File containing pair vocab
         --chunk NUM         The number of lines to read before dumping each matrix [default: 100000]
@@ -67,7 +68,7 @@ def main():
         --win NUM           Maximal number of tokens between X and Y [default: 5]
         --left NUM          Left window size [default: 2]
         --right NUM         Right window size [default: 1]
-        --gran NUM          Single instance per word (0), per word-position (1), full pattern(2) [default: 0]
+        --gran NUM          Single instance per word (0), per word-position (1), pos-encoding (2), full pattern(3) [default: 0]
         --skip-next NUM     Skip next word pattern [default: 0]
     """)
     print(args)
@@ -84,7 +85,7 @@ def main():
     sample = int(args['--sample'])
     skip_next = int(args['--skip-next']) == 1
     pair_vocab = str(args['--pair_vocab']) if args['--pair_vocab'] is not None else None
-    print('granularity {} skip_next {} reverse {}'.format(granularity, skip_next, reverse))
+    print('granularity {} skip_next {} reverse {} sample {}'.format(granularity, skip_next, reverse, sample))
     
     unk, pad, x_placeholder, y_placeholder, blank = '<unk>', '<pad>', '<X>', '<Y>', ''
     print('reading vocab from {}'.format(vocab_file))
@@ -107,9 +108,11 @@ def main():
     R = 2*len(vocab)
     # lexinf_filter = read_filtered_pairs('/home/mandar90/data/lexinf/root09/train.txt', vocab)
     # print('lexinf_filter {}'.format(len(lexinf_filter)))
-    coor_filter = read_filtered_pairs('/sdb/data/wikipedia-sentences/sorted_coor_counts.txt', vocab, 50, sorted_file=True, hardsample=sample==1)
-    #coor_filter = read_filtered_pairs('/home/mandar90/data/conceptnet/single_word/train.txt', vocab, None, sorted_file=False)
-    print('count filter {}'.format(len(coor_filter)))
+    # uncomment this to reproduce typed_2_rel_samp
+    # coor_filter = read_filtered_pairs('/sdb/data/wikipedia-sentences/sorted_coor_counts.txt', vocab, 50, sorted_file=True, hardsample=sample==1)
+    coor_filter = read_filtered_pairs('/sdb/data/wikipedia-sentences/sorted_coor_counts.txt', vocab, 20, sorted_file=True, hardsample=sample==1)
+    # coor_filter = read_filtered_pairs('/home/mandar90/data/conceptnet/single_word/train.txt', vocab, None, sorted_file=False)
+    # print('count filter {}'.format(len(coor_filter)))
     # glove_filter = read_filtered_pairs('/sdb/data/wikipedia-sentences/pairs.txt', vocab, 0.4)
     # print('glove filter {}'.format(len(glove_filter)))
     filtered_pairs = None #lexinf_filter #.union(glove_filter)
@@ -117,7 +120,7 @@ def main():
     pair_to_index = defaultdict()
     stop_word_ids = set([vocab.stoi[w] for w in stop_words])
     keep_wordpair = keep_wordpair_by_mult
-    word_unigram_dict = read_counts('/sdb/data/wikipedia-sentences/counts.txt', vocab, 10)
+    word_unigram_dict = read_counts('/sdb/data/wikipedia-sentences/counts.txt', vocab, 1)
 
     with open(corpus_file, 'r', encoding='utf-8') as f:
         for i_line, line in tqdm(enumerate(f)):
@@ -135,7 +138,10 @@ def main():
                     this_pair = (token_ids[ix], token_ids[iy]) if (token_ids[ix] < token_ids[iy]) else (token_ids[iy], token_ids[ix])
                     # if this_pair in coor_filter and (token_ids[ix] in pair_vocab or token_ids[iy] in pair_vocab):
                     # if token_ids[ix] in pair_vocab or token_ids[iy] in pair_vocab:
-                    if coor_filter is None or (this_pair in coor_filter and (sample != 2 or keep_wordpair(word_unigram_dict, this_pair, vocab, stop_words=stop_word_ids))):
+                    # uncomment this to reproduce typed_2_rel_samp; it keeps all pairs that occured more than 50 times
+                    # if coor_filter is None or (this_pair in coor_filter and (sample != 2 or keep_wordpair(word_unigram_dict, this_pair, vocab, stop_words=stop_word_ids))):
+
+                    if (coor_filter is None or this_pair in coor_filter) and (sample != 2 or keep_wordpair(word_unigram_dict, this_pair, vocab, stop_words=stop_word_ids)):
                         # if pair_vocab is not None:
                         # pair_to_index[ordered_pair] = pair_to_index.get(ordered_pair, len(pair_to_index))
                         if granularity == 3:
@@ -181,7 +187,7 @@ def main():
                 # ipdb.set_trace()
                 # if chunk_i >= 50:
                     # break
-    # pickle.dump(pair_to_index, open('pair_to_index.pkl', 'wb'))
+    pickle.dump(pair_to_index, open('pair_to_index.pkl', 'wb'))
     print("Num_pairs {}".format(len(pair_to_index)))
     if len(matrix) > 0:
         save(matrix, triplets_dir, chunk_i)
@@ -209,7 +215,7 @@ def keep_wordpair_by_thr(count_dict, word_pair, vocab, thr=0.95, stop_words=None
     random_prob = np.random.uniform()
     return remove_prob < 0 or random_prob > remove_prob
 
-def sample_and_save(matrix, triplets_dir, chunk_i, vocab, thr=100):
+def sample_and_save(matrix, triplets_dir, chunk_i, vocab, thr=50):
     matrix = np.array(matrix)
     sub, obj = np.copy(matrix[:, 0]), np.copy(matrix[:, 1])
     np.random.shuffle(sub)
@@ -218,16 +224,23 @@ def sample_and_save(matrix, triplets_dir, chunk_i, vocab, thr=100):
     relp_to_sub, relp_to_obj = defaultdict(list), defaultdict(list)
     for instance in matrix:
         contexts = instance[2:]
-        rel = [contexts[idx] for idx in range(1, len(contexts)) if contexts[idx] not in range(0, 4)]
-        rel_to_sub[tuple(contexts)].append(instance[0])
-        rel_to_obj[tuple(contexts)].append(instance[1])
+        start_idx = np.where(contexts==vocab.stoi['<X>'])[0][0]
+        end_idx = np.where(contexts==vocab.stoi['<Y>'])[0][0]
+        rel = [contexts[idx] for idx in range(start_idx + 1, end_idx)]
+        rel_to_sub[tuple(rel)].append(instance[0])
+        rel_to_obj[tuple(rel)].append(instance[1])
         relp = ' '.join([vocab.itos[idx] for idx in rel])
         relp_to_sub[relp].append(vocab.itos[instance[0]])
         relp_to_obj[relp].append(vocab.itos[instance[1]])
+    # import ipdb
+    # ipdb.set_trace()
     sampled_subjects, sampled_objects = [], []
     for i, instance in enumerate(matrix):
         contexts = instance[2:]
-        rel_subs, rel_objs = rel_to_sub[tuple(contexts)], rel_to_obj[tuple(contexts)]
+        start_idx = np.where(contexts==vocab.stoi['<X>'])[0][0]
+        end_idx = np.where(contexts==vocab.stoi['<Y>'])[0][0]
+        rel = [contexts[idx] for idx in range(start_idx + 1, end_idx)]
+        rel_subs, rel_objs = rel_to_sub[rel], rel_to_obj[rel]
         sampled_sub = (np.random.choice(rel_subs)) if len(rel_subs) > thr else sub[i]
         sampled_obj = (np.random.choice(rel_objs)) if len(rel_objs) > thr else obj[i]
         # if len(rel_subs) > 50:
