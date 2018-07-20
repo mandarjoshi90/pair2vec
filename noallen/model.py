@@ -4,7 +4,7 @@ from typing import Dict
 from torch.nn import Module, Linear, Dropout, Sequential, Embedding, LogSigmoid, ReLU
 from torch.nn.functional import sigmoid, logsigmoid, softmax, normalize
 from allennlp.nn.util import get_text_field_mask
-from noallen.representation import SpanRepresentation, PositionalRepresentation, LRPositionalRepresentation
+from noallen.representation import SpanRepresentation, PositionalRepresentation, LRPositionalRepresentation, SubwordEmbedding
 from torch.nn.init import xavier_normal
 from noallen.util import pretrained_embeddings_or_xavier
 import numpy as np
@@ -25,6 +25,7 @@ class RelationalEmbeddingModel(Module):
         self.arg_vocab = arg_vocab
         self.rel_vocab = rel_vocab
         self.compositional_rels = config.compositional_rels
+        self.normalize_pretrained = getattr(config, 'normalize_pretrained', False)
         self.separate_mlr = getattr(config, 'separate_mlr', False)
         self.positional_rels = getattr(config, 'positional_rels', False)
         self.type_scores = get_type_file(config.type_scores_file, arg_vocab).cuda() if hasattr(config, 'type_scores_file') else None
@@ -32,6 +33,7 @@ class RelationalEmbeddingModel(Module):
         self.pad = arg_vocab.stoi['<pad>']
         self.num_neg_samples = getattr(config, 'num_neg_samples', 1)
         self.num_sampled_relations = getattr(config, 'num_sampled_relations', 1)
+        self.subword_vocab_file = getattr(config, 'subword_vocab_file', None)
         self.loss_weights =  [('positive_loss', getattr(config, 'positive_loss', 1.0)),
                                 ('negative_rel_loss', getattr(config, 'negative_rel_loss', 1.0)),
                                 ('negative_subject_loss', getattr(config, 'negative_subject_loss', 1.0)),
@@ -41,7 +43,10 @@ class RelationalEmbeddingModel(Module):
         if config.compositional_args:
             self.represent_arguments = SpanRepresentation(config, config.d_args, arg_vocab)
         else:
-            self.represent_arguments = Embedding(config.n_args, config.d_args)
+            if self.subword_vocab_file is not None:
+                self.represent_arguments = SubwordEmbedding(config, arg_vocab)
+            else:
+                self.represent_arguments = Embedding(config.n_args, config.d_args)
         
         if config.compositional_rels:
             self.represent_relations = SpanRepresentation(config, config.d_rels, rel_vocab)
@@ -72,7 +77,7 @@ class RelationalEmbeddingModel(Module):
     def init(self):
         if isinstance(self.represent_arguments, Embedding):
             if self.arg_vocab.vectors is not None:
-                pretrained = self.arg_vocab.vectors
+                pretrained = normalize(self.arg_vocab.vectors, dim=-1) if self.normalize_pretrained else self.arg_vocab.vectors
                 self.represent_arguments.weight.data[:, :pretrained.size(1)].copy_(pretrained)
                 # self.represent_arguments.weight.data[:,pretrained.size(1) :2*pretrained.size(1)].copy_(pretrained)
                 # self.represent_arguments.weight.data[:,2*pretrained.size(1) :3*pretrained.size(1)].copy_(pretrained)
@@ -84,10 +89,11 @@ class RelationalEmbeddingModel(Module):
             if self.rel_vocab.vectors is not None:
                 # xavier_normal(self.represent_relations.weight.data)
                 # pass
-                self.represent_relations.weight.data[:self.n_rels].copy_(self.rel_vocab.vectors) #.repeat(3,1))
+                pretrained = normalize(self.rel_vocab.vectors, dim=-1) if self.normalize_pretrained else self.rel_vocab.vectors
+                self.represent_relations.weight.data[:self.n_rels].copy_(pretrained) #.repeat(3,1))
                 if self.separate_mlr:
-                    self.represent_relations.weight.data[self.n_rels:2*self.n_rels].copy_(self.rel_vocab.vectors) #.repeat(3,1))
-                    self.represent_relations.weight.data[2*self.n_rels:3*self.n_rels].copy_(self.rel_vocab.vectors) #.repeat(3,1))
+                    self.represent_relations.weight.data[self.n_rels:2*self.n_rels].copy_(pretrained) #.repeat(3,1))
+                    self.represent_relations.weight.data[2*self.n_rels:3*self.n_rels].copy_(pretrained) #.repeat(3,1))
             else:
                 #xavier_normal(self.represent_relations.weight.data)
                 self.represent_relations.reset_parameters()
@@ -174,6 +180,7 @@ class PairwiseRelationalEmbeddingModel(Module):
         self.compositional_rels = config.compositional_rels
         self.separate_mlr = config.separate_mlr if hasattr(config, 'separate_mlr') else False
         self.positional_rels = config.positional_rels if hasattr(config, 'positional_rels') else False
+        self.normalize_pretrained = getattr(config, 'normalize_pretrained', False)
         self.type_scores = get_type_file(config.type_scores_file, arg_vocab).cuda() if hasattr(config, 'type_scores_file') else None
         self.type_indices = get_type_file(config.type_indices_file, arg_vocab, indxs=True).cuda() if hasattr(config, 'type_indices_file') else None
         self.pad = arg_vocab.stoi['<pad>']
@@ -204,10 +211,11 @@ class PairwiseRelationalEmbeddingModel(Module):
             if self.rel_vocab.vectors is not None:
                 # xavier_normal(self.represent_relations.weight.data)
                 # pass
-                self.represent_relations.weight.data[:self.n_rels].copy_(self.rel_vocab.vectors) #.repeat(3,1))
+                pretrained = normalize(self.rel_vocab.vectors, dim=-1) if self.normalize_pretrained else self.rel_vocab.vectors
+                self.represent_relations.weight.data[:self.n_rels].copy_(pretrained) #.repeat(3,1))
                 if self.separate_mlr:
-                    self.represent_relations.weight.data[self.n_rels:2*self.n_rels].copy_(self.rel_vocab.vectors) #.repeat(3,1))
-                    self.represent_relations.weight.data[2*self.n_rels:3*self.n_rels].copy_(self.rel_vocab.vectors) #.repeat(3,1))
+                    self.represent_relations.weight.data[self.n_rels:2*self.n_rels].copy_(pretrained) #.repeat(3,1))
+                    self.represent_relations.weight.data[2*self.n_rels:3*self.n_rels].copy_(pretrained) #.repeat(3,1))
             else:
                 #xavier_normal(self.represent_relations.weight.data)
                 self.represent_relations.reset_parameters()
