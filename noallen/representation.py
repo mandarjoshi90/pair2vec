@@ -1,4 +1,5 @@
 import numpy as np
+import sentencepiece as spm
 import torch
 from torch.nn import Module, Linear, Dropout, Sequential, LSTM, Embedding, GRU, ReLU
 from torch.nn.functional import softmax, normalize
@@ -7,6 +8,7 @@ from torch.autograd import Variable
 from torch.nn.init import xavier_normal, constant
 from noallen.util import pretrained_embeddings_or_xavier
 from noallen.torchtext.vocab import Vocab
+from noallen.torchtext.vocab import Vectors
 
 class SpanRepresentation(Module):
     def __init__(self, config, d_output, vocab):
@@ -92,28 +94,54 @@ def get_word_to_subwords(word_vocab, subword_vocab, minn, maxn):
             numpy_map[i, j] = subword_idx
     return torch.from_numpy(numpy_map)
 
+def get_word_to_bpe_subwords(word_vocab, subword_vocab, sp):
+    mapping = []
+    max_len = 0
+    for word_idx, word in enumerate(word_vocab.itos):
+        mapping.append([])
+        if word in word_vocab.specials:
+            continue
+        subwords = sp.EncodeAsPieces(word)[:5]
+        subwords = [subw.decode('utf-8') for subw in subwords]
+        subwords = [subw for subw in subwords if subword_vocab.stoi[subw] != 0]
+        for subword in subwords:
+            mapping[word_idx].append(subword_vocab.stoi[subword])
+        max_len = max_len if len(mapping[word_idx]) < max_len else len(mapping[word_idx])
+    print(len(word_vocab), max_len)
+    numpy_map = np.zeros((len(word_vocab), max_len), dtype=int)
+    for i, subword_list in enumerate(mapping):
+        for j, subword_idx in enumerate(subword_list):
+            numpy_map[i, j] = subword_idx
+    return torch.from_numpy(numpy_map)
+
 class SubwordEmbedding(Module):
     def __init__(self, config, vocab):
         super(SubwordEmbedding, self).__init__()
         self.word_embedding = Embedding(len(vocab), config.d_embed)
         self.subword_vocab = get_subword_vocab(config.subword_vocab_file)
+        self.subword_vocab.load_vectors(Vectors('en.wiki.bpe.op5000.d300.w2v.txt', '/home/mandar90/data/bpemb'))
         self.subword_embedding = Embedding(len(self.subword_vocab), config.d_embed) 
         self.config = config
         self.word_vocab = vocab
+        sp = spm.SentencePieceProcessor()
+        sp.Load(config.bpe_model_file)
         lens = [len(subw) for subw in self.subword_vocab.itos[1:]]
         minn, maxn = min(lens), max(lens)
-        self.word_to_subwords = get_word_to_subwords(vocab, self.subword_vocab, minn, maxn).cuda()
+        self.word_to_subwords = get_word_to_bpe_subwords(vocab, self.subword_vocab, sp).cuda()
         self.init()
 
     def init(self):
         [xavier_normal(p) for p in self.parameters() if len(p.size()) > 1]
         if self.word_vocab.vectors is not None:
-            pretrained = normalize(self.word_vocab.vectors, dim=-1) if self.config.normalize_pretrained else self.vocab.vectors
+            pretrained = normalize(self.word_vocab.vectors, dim=-1) if self.config.normalize_pretrained else self.word_vocab.vectors
             self.word_embedding.weight.data.copy_(pretrained)
         else:
-            #xavier_normal(self.embedding.weight.data)
             self.word_embedding.reset_parameters()
-        self.subword_embedding.reset_parameters()
+        if self.subword_vocab.vectors is not None:
+            pretrained = normalize(self.subword_vocab.vectors, dim=-1) if self.config.normalize_pretrained else self.subword_vocab.vectors
+            self.subword_embedding.weight.data.copy_(pretrained)
+        else:
+            self.subword_embedding.reset_parameters()
 
     def forward(self, word):
         word_embedding = self.word_embedding(word)
