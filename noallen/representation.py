@@ -2,7 +2,7 @@ import numpy as np
 import sentencepiece as spm
 import torch
 from torch.nn import Module, Linear, Dropout, Sequential, LSTM, Embedding, GRU, ReLU
-from torch.nn.functional import softmax, normalize
+from torch.nn.functional import softmax, normalize, embedding
 from allennlp.nn.util import masked_softmax
 from torch.autograd import Variable
 from torch.nn.init import xavier_normal, constant
@@ -128,6 +128,10 @@ class SubwordEmbedding(Module):
         lens = [len(subw) for subw in self.subword_vocab.itos[1:]]
         minn, maxn = min(lens), max(lens)
         self.word_to_subwords = get_word_to_bpe_subwords(vocab, self.subword_vocab, sp).cuda()
+        # self.subword_map = Embedding(self.word_to_subwords.size(0), self.word_to_subwords.size(1))
+        # self.subword_map.weight.requires_grad = False
+        # self.subword_map.weight.data.copy_(self.word_to_subwordsfloat())
+        #self.word_to_subwords = Variable(get_word_to_bpe_subwords(vocab, self.subword_vocab, sp), requires_grad=False).cuda()
         self.init()
 
     def init(self):
@@ -145,6 +149,7 @@ class SubwordEmbedding(Module):
 
     def forward(self, word):
         word_embedding = self.word_embedding(word)
+        # subword_embedding_seq = self.subword_map(word)
         subword_embedding_seq = Variable(torch.index_select(self.word_to_subwords, 0, word.data), requires_grad=False)
         subword_embeddings = self.subword_embedding(subword_embedding_seq)
         # import ipdb
