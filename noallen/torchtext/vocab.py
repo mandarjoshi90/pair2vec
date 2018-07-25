@@ -286,7 +286,7 @@ class Vectors(object):
                 binary_lines = True
 
             logger.info("Loading vectors from {}".format(path))
-            for line in tqdm(lines, total=len(lines)):
+            for iline, line in tqdm(enumerate(lines), total=len(lines)):
                 # Explicitly splitting on " " is important, so we don't
                 # get rid of Unicode non-breaking spaces in the vectors.
                 entries = line.rstrip().split(b" " if binary_lines else " ")
@@ -300,9 +300,9 @@ class Vectors(object):
                     continue
                 elif dim != len(entries):
                     raise RuntimeError(
-                        "Vector for token {} has {} dimensions, but previously "
+                        "Vector for token {} at line {} has {} dimensions, but previously "
                         "read vectors have {} dimensions. All vectors must have "
-                        "the same number of dimensions.".format(word, len(entries), dim))
+                        "the same number of dimensions.".format(word, iline, len(entries), dim))
 
                 if binary_lines:
                     try:
