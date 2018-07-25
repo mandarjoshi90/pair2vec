@@ -22,7 +22,7 @@ class DistributionalModel(torch.nn.Module):
         self.represent_arguments.weight.requires_grad = False
         self.arg_vocab.load_vectors('glove.6B.300d')
         pretrained = self.arg_vocab.vectors
-        pretrained = normalize(pretrained) 
+        pretrained = normalize(pretrained, dim=-1) 
         self.represent_arguments.weight.data.copy_(pretrained)
 
     def forward(self):
@@ -191,11 +191,12 @@ def get_accuracy(vocab, org_scores, w1, w2, w3, w4, batch_num, preds, filename):
 
 def mask_out_analogy_words(file_mask, w1_batch, w2_batch, w3_batch, model):
     mask = np.tile(file_mask.copy(), (w1_batch.shape[0], 1))
+    w1_batch, w2_batch, w3_batch  = w1_batch.cpu().data.numpy(),  w2_batch.cpu().data.numpy(), w3_batch.cpu().data.numpy()
     for i, (w1, w2, w3) in enumerate(zip(w1_batch, w2_batch, w3_batch)):
         mask[i, w1] = 0
         mask[i, w2] = 0
         mask[i, w3] = 0
-    return mask
+    return Variable(torch.from_numpy(mask), requires_grad=False).cuda()
 
 def read_vocab_file(fname):
     vocab = []
@@ -225,10 +226,12 @@ def eval_distributional_on_bats(bats_dir, vocab_file, pred_file, batch=2, triple
     model = DistributionalModel(vocab, 300)
     model.cuda()
     model.eval()
+    file_mask = np.ones(len(vocab)) #get_bats_mask(bats_dir, model.arg_vocab)
+    file_mask[0] = 0
     correct, total = 0, 0
     per_cat_acc, preds  = [], []
     for root, dirnames, filenames in os.walk(bats_dir):
-        for filename in fnmatch.filter(sorted(filenames), '[LE]*.txt'):
+        for filename in fnmatch.filter(sorted(filenames), '[ID]*.txt'):
             pairs = read_pairs(os.path.join(root,filename))
             print(filename, len(pairs))
             file_correct, file_total = 0, 0
@@ -245,7 +248,8 @@ def eval_distributional_on_bats(bats_dir, vocab_file, pred_file, batch=2, triple
                 # ipdb.set_trace()
                 # (bs, V, dim))
                 scores = torch.bmm(vocab_relemb, p1_relemb.unsqueeze(2)).squeeze(2)
-                mask = distributional_topk_mask(model, w3)
+                # mask = distributional_topk_mask(model, w3)
+                mask = mask_out_analogy_words(file_mask, w1, w2, w3, model)
                 scores.masked_fill_((1 - mask).byte(), -1e20)
                 file_correct += get_accuracy(vocab, scores, w1, w2, w3, w4, i, preds, filename)
                 file_total += len(w4)
@@ -268,6 +272,7 @@ def eval_on_bats(bats_dir, model_file, config_file, pred_file, batch=2, triplet_
     dmodel.eval()
     model.cuda()
     model.eval()
+    vocab_size = len(vocab)
     print('--------------', direction, '--------------')
     # mask = get_mask(triplet_dir, model.arg_vocab)
     file_mask = np.ones(len(model.arg_vocab)) #get_bats_mask(bats_dir, model.arg_vocab)
@@ -285,7 +290,7 @@ def eval_on_bats(bats_dir, model_file, config_file, pred_file, batch=2, triplet_
             bs = len(all_w1)
             for i in tqdm(range(0, len(all_w1), batch)):
                 w1, w2, w3, w4 = all_w1[i:i+batch], all_w2[i:i+batch], all_w3[i:i+batch], all_w4[i:i+batch]
-                vocab_size, dim = model.represent_arguments.weight.data.size()
+
                 # (bs, dim)
                 if direction == 'fwd':
                     p1_relemb = get_relation_embedding((w1, w2), model)
@@ -297,7 +302,8 @@ def eval_on_bats(bats_dir, model_file, config_file, pred_file, batch=2, triplet_
                 # (bs, V, dim))
                 vocab_relemb = vocab_relation_embeddings(model, w3, direction)
                 scores = torch.bmm(vocab_relemb, p1_relemb.unsqueeze(2)).squeeze(2)
-                mask = distributional_topk_mask(dmodel, w3, k=500)
+                # mask = distributional_topk_mask(dmodel, w3, k=500)
+                mask = mask_out_analogy_words(file_mask, w1, w2, w3, model)
                 scores.masked_fill_((1 - mask).byte(), -1e20)
                 # scores = (pair1_rel_emb.unsqueeze(1).expand(bs, vocab_size, dim) * vocab_rel_emb).sum(-1)
                 file_correct += get_accuracy(vocab, scores, w1, w2, w3, w4, i, preds, filename)
