@@ -20,6 +20,7 @@ def make_reading_comprehension_instance(question_tokens: List[Token],
                                         passage_tokens: List[Token],
                                         token_indexers: Dict[str, TokenIndexer],
                                         passage_text: str,
+                                        question_id: str,
                                         token_spans: List[Tuple[int, int]] = None,
                                         answer_texts: List[str] = None,
                                         additional_metadata: Dict[str, Any] = None) -> Instance:
@@ -73,10 +74,11 @@ def make_reading_comprehension_instance(question_tokens: List[Token],
     metadata = {
             'original_passage': passage_text,
             'token_offsets': passage_offsets,
+            'question_id': question_id,
             'question_tokens': [token.text for token in question_tokens],
             'passage_tokens': [token.text for token in passage_tokens],
             }
-    if len(answer_texts) > 0:
+    if answer_texts is None or len(answer_texts) > 0:
         metadata['answer_texts'] = answer_texts
     else:
         metadata['answer_texts'] = ['']
@@ -157,6 +159,7 @@ class Squad2Reader(DatasetReader):
                     span_ends = [start + len(answer) for start, answer in zip(span_starts, answer_texts)]
                     instance = self.text_to_instance(question_text,
                                                      paragraph,
+                                                     question_answer['id'],
                                                      zip(span_starts, span_ends),
                                                      answer_texts,
                                                      tokenized_paragraph)
@@ -166,6 +169,7 @@ class Squad2Reader(DatasetReader):
     def text_to_instance(self,  # type: ignore
                          question_text: str,
                          passage_text: str,
+                         question_id: str,
                          char_spans: List[Tuple[int, int]] = None,
                          answer_texts: List[str] = None,
                          passage_tokens: List[Token] = None) -> Instance:
@@ -196,6 +200,7 @@ class Squad2Reader(DatasetReader):
                 passage_tokens,
                 self._token_indexers,
                 passage_text,
+                question_id,
                 token_spans,
                 answer_texts)
 

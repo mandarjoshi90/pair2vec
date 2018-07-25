@@ -43,6 +43,7 @@ class RelembDocQANoAnswer(Model):
                  relemb_model_file,
                  relemb_dropout: float,
                  embedding_keys,
+                 mask_key,
                  initializer: InitializerApplicator,
                  dropout: float = 0.2,
                  mask_lstms: bool = True) -> None:
@@ -65,6 +66,8 @@ class RelembDocQANoAnswer(Model):
         self._text_field_embedder = text_field_embedder
         self._relemb_dropout = torch.nn.Dropout(relemb_dropout)
         self._embedding_keys = embedding_keys
+        self._mask_key = mask_key
+        self._vocab = vocab
         # output: (batch_size, num_tokens, embedding_dim)
 
         # assert text_field_embedder.get_output_dim() == phrase_layer.get_input_dim()
@@ -76,7 +79,8 @@ class RelembDocQANoAnswer(Model):
         self._passage_word_linear =  TimeDistributed(torch.nn.Linear(span_start_encoder.get_input_dim(), 1))
         # output: (batch_size, num_tokens, num_tokens)
 
-        self._merge_atten = TimeDistributed(torch.nn.Linear(600 + encoding_dim * 4, encoding_dim))
+        merge_attn_input_dim = (encoding_dim * 4 + 600) if ablation_type == 'attn_over_rels' else (encoding_dim*4 + 300)
+        self._merge_atten = TimeDistributed(torch.nn.Linear(merge_attn_input_dim, encoding_dim))
 
         self._residual_encoder = residual_encoder
         self._no_answer_scorer = no_answer_scorer
@@ -125,6 +129,14 @@ class RelembDocQANoAnswer(Model):
         seq2 = seq2.unsqueeze(1).expand(batch_size, sl1, sl2, dim).contiguous().view(-1, dim)
         relation_embedding = self.relemb.predict_relations(seq1, seq2).contiguous().view(batch_size, sl1, sl2, dim)
         return relation_embedding
+
+    def get_mask(self, text_field_tensors, key):
+        if text_field_tensors[key].dim() == 2:
+            return text_field_tensors[key] > 0
+        elif text_field_tensors[key].dim() == 3:
+            return ((text_field_tensors[key] > 0).long().sum(dim=-1) > 0).long()
+        else:
+            raise NotImplementedError()
 
     def forward(self,  # type: ignore
                 question: Dict[str, torch.LongTensor],
@@ -176,19 +188,25 @@ class RelembDocQANoAnswer(Model):
             string from the original passage that the model thinks is the best answer to the
             question.
         """
-        batch_size, num_tokens = passage['tokens'].size()
 
         # Send through text-field embedder
-        relemb_passage_tokens = passage['relemb_tokens']
-        relemb_question_tokens = question['relemb_tokens']
-        del passage['relemb_tokens']
-        del question['relemb_tokens']
-        embedded_question = self._dropout(self._text_field_embedder(question))
-        embedded_passage = self._dropout(self._text_field_embedder(passage))
-        # embedded_question = self._dropout(self.get_embedding(self._embedding_keys, question))
-        # embedded_passage = self._dropout(self.get_embedding(self._embedding_keys, passage))
-        passage_as_args = self.get_argument_rep(relemb_passage_tokens)
-        question_as_args = self.get_argument_rep(relemb_question_tokens)
+        # relemb_passage_tokens = passage['relemb_tokens']
+        # relemb_question_tokens = question['relemb_tokens']
+        # del passage['relemb_tokens']
+        # del question['relemb_tokens']
+        # embedded_question = self._dropout(self._text_field_embedder(question))
+        # embedded_passage = self._dropout(self._text_field_embedder(passage))
+        embedded_question = self._dropout(self.get_embedding(self._embedding_keys, question))
+        embedded_passage = self._dropout(self.get_embedding(self._embedding_keys, passage))
+        if self._ablation_type != 'pairwise_diff':
+            passage_as_args = self.get_argument_rep(passage['relemb_tokens'])
+            question_as_args = self.get_argument_rep(question['relemb_tokens'])
+        else:
+            key = 'tokens'
+            embedder = getattr(self._text_field_embedder, 'token_embedder_{}'.format(key)) # if key != 'relemb_tokens' else self.get_argument_rep
+            passage_as_args = embedder(passage[key])
+            question_as_args = embedder(question[key])
+
 
         embedded_passage = torch.cat((embedded_passage, passage_as_args), dim=-1)
         embedded_question = torch.cat((embedded_question, question_as_args), dim=-1)
@@ -196,8 +214,8 @@ class RelembDocQANoAnswer(Model):
         # Extended batch size takes into account batch size * num paragraphs
         extended_batch_size = embedded_question.size(0)
         passage_length = embedded_passage.size(1)
-        question_mask = util.get_text_field_mask(question).float()
-        passage_mask = util.get_text_field_mask(passage).float()
+        question_mask = self.get_mask(question, self._mask_key).float()
+        passage_mask = self.get_mask(passage, self._mask_key).float()
         question_lstm_mask = question_mask if self._mask_lstms else None
         passage_lstm_mask = passage_mask if self._mask_lstms else None
 
@@ -205,6 +223,7 @@ class RelembDocQANoAnswer(Model):
         # (extended_batch_size, sequence_length, input_dim) -> (extended_batch_size, sequence_length, encoding_dim)
         encoded_question = self._dropout(self._phrase_layer(embedded_question, question_lstm_mask))
         encoded_passage = self._dropout(self._phrase_layer(embedded_passage, passage_lstm_mask))
+        batch_size, num_tokens, _ = encoded_passage.size()
         encoding_dim = encoded_question.size(-1)
 
         # Shape: (extended_batch_size, passage_length, question_length)
@@ -243,13 +262,36 @@ class RelembDocQANoAnswer(Model):
                                                                                     passage_length,
                                                                                     encoding_dim)
         if self._ablation_type  == 'attn_over_rels':
+            bs, passage_len, dim = passage_as_args.size()
+            _, question_len, dim = question_as_args.size()
+            # get mask for padding and unknowns
+            relemb_passage_mask = 1 - (torch.eq(passage['relemb_tokens'], 0).long() + torch.eq(passage['relemb_tokens'], 1).long())
+            relemb_question_mask = 1 - (torch.eq(question['relemb_tokens'], 0).long() + torch.eq(question['relemb_tokens'], 1).long())
+            # normalize with masked softmask
+            pq_rel_attention = util.last_dim_softmax(passage_question_similarity, relemb_question_mask)
+            # get relation embedding
             p2q_relations = (normalize(self.get_relation_embedding(passage_as_args, question_as_args), dim=-1))
             q2p_relations = (normalize(self.get_relation_embedding(question_as_args, passage_as_args), dim=-1))
-            # p2h_relations = p2h_relations * eq_mask.unsqueeze(3)
-            # h2p_relations = h2p_relations * eq_mask.transpose(1,2).unsqueeze(3)
-
-            attended_question_relations = self._relemb_dropout(util.weighted_sum(p2q_relations, passage_question_attention))
-            attended_passage_relations = self._relemb_dropout(util.weighted_sum(q2p_relations.transpose(1,2), passage_question_attention))
+            # attention over relemb
+            attended_question_relations = self._relemb_dropout(util.weighted_sum(p2q_relations, pq_rel_attention))
+            attended_passage_relations = self._relemb_dropout(util.weighted_sum(q2p_relations.transpose(1,2), pq_rel_attention))
+            # mask out stuff
+            attended_question_relations = attended_question_relations * relemb_passage_mask.float().unsqueeze(-1)
+            attended_passage_relations = attended_passage_relations * relemb_passage_mask.float().unsqueeze(-1)
+            attended_relations = torch.cat((attended_question_relations, attended_passage_relations), dim=-1)
+        elif self._ablation_type == 'pairwise_diff':
+            bs, passage_len, dim = passage_as_args.size()
+            _, question_len, dim = question_as_args.size()
+            token_passage_mask = 1 - (torch.eq(passage['tokens'], 0).long() + torch.eq(passage['tokens'], 1).long())
+            token_question_mask = 1 - (torch.eq(question['tokens'], 0).long() + torch.eq(question['tokens'], 1).long())
+            pq_rel_attention = util.last_dim_softmax(passage_question_similarity, token_question_mask)
+            p2q_relations = normalize(passage_as_args.unsqueeze(2).expand(bs, passage_len, question_len, dim) - question_as_args.unsqueeze(1).expand(bs, passage_len, question_len, dim), dim=-1)
+            # q2p_relations = normalize(question_as_args.unsqueeze(2).expand(bs,question_len, passage_len, dim) - passage_as_args.unsqueeze(1).expand(bs, question_len, passage_len, dim), dim=-1)
+            attended_question_relations = self._relemb_dropout(util.weighted_sum(p2q_relations, pq_rel_attention))
+            # attended_passage_relations = self._relemb_dropout(util.weighted_sum(q2p_relations.transpose(1,2), pq_rel_attention))
+            attended_question_relations = attended_question_relations * token_passage_mask.float().unsqueeze(-1)
+            attended_relations = attended_question_relations
+            # attended_passage_relations = attended_passage_relations * passage_mask.float().unsqueeze(-1)
         else:
             raise NotImplementedError()
 
@@ -258,7 +300,7 @@ class RelembDocQANoAnswer(Model):
                                           passage_question_vectors,
                                           encoded_passage * passage_question_vectors,
                                           encoded_passage * tiled_question_passage_vector,
-                                          attended_passage_relations, attended_question_relations],
+                                          attended_relations],
                                          dim=-1)
 
         # purple "linear ReLU layer"
@@ -328,10 +370,10 @@ class RelembDocQANoAnswer(Model):
         best_span = self.get_best_span(span_start_logits, span_end_logits, z)
 
         output_dict = {
-                "span_start_logits": span_start_logits,
-                "span_start_probs": span_start_probs,
-                "span_end_logits": span_end_logits,
-                "span_end_probs": span_end_probs,
+                # "span_start_logits": span_start_logits,
+                # "span_start_probs": span_start_probs,
+                # "span_end_logits": span_end_logits,
+                # "span_end_probs": span_end_probs,
         }
 
         if spans is not None:
@@ -348,10 +390,12 @@ class RelembDocQANoAnswer(Model):
             loss = no_answer_loss(passage_mask, span_start_logits, span_end_logits, span_starts, span_ends, z)
 
             # (batch_size, num_paragraphs, num_tokens)
-            output_dict["loss"] = loss
+            output_dict["loss"] = loss.unsqueeze(0)
 
         if metadata is not None:
             output_dict['best_span_str'] = []
+            output_dict['question_id'] = []
+
             batch_size = len(metadata)
             for i in range(batch_size):
                 # paragraph_idx = int(best_paragraphs[i].data.cpu().numpy())
@@ -366,6 +410,7 @@ class RelembDocQANoAnswer(Model):
                     best_span_string = passage_str[start_offset:end_offset]
                 # print(predicted_span, best_span_string)
                 output_dict['best_span_str'].append(best_span_string)
+                output_dict['question_id'].append(metadata[i]['question_id'])
 
                 answer_texts = metadata[i].get('answer_texts', [])
                 exact_match = f1_score = 0
@@ -434,6 +479,7 @@ class RelembDocQANoAnswer(Model):
         relemb_dropout = params.pop("relemb_dropout", 0)
         pretrained_file = params.pop('model_file')
         config_file = params.pop('config_file')
+        mask_key = params.pop('mask_key', 'elmo')
         ablation_type = params.pop('ablation_type', 'vanilla')
         embedding_keys = params.pop('embedding_keys', ['tokens'])
         relemb_config = get_config(config_file, params.pop('experiment', 'multiplication')) if not ablation_type.startswith('vanilla') else None
@@ -457,6 +503,7 @@ class RelembDocQANoAnswer(Model):
                    relemb_model_file=pretrained_file,
                    relemb_dropout=relemb_dropout,
                    embedding_keys=embedding_keys,
+                   mask_key=mask_key,
                    initializer=initializer,
                    dropout=dropout,
                    mask_lstms=mask_lstms)

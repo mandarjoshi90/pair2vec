@@ -58,6 +58,7 @@ class DocQANoAnswer(Model):
         assert text_field_embedder.get_output_dim() == phrase_layer.get_input_dim()
         self._phrase_layer = phrase_layer
         encoding_dim = phrase_layer.get_output_dim()
+        self._vocab = vocab
         # output: (batch_size, num_tokens, encoding_dim)
 
         self._matrix_attention = TriLinearAttention(encoding_dim)
@@ -143,7 +144,6 @@ class DocQANoAnswer(Model):
             string from the original passage that the model thinks is the best answer to the
             question.
         """
-        batch_size, num_tokens = passage['tokens'].size()
 
         # Send through text-field embedder
         embedded_question = self._dropout(self._text_field_embedder(question))
@@ -161,6 +161,7 @@ class DocQANoAnswer(Model):
         # (extended_batch_size, sequence_length, input_dim) -> (extended_batch_size, sequence_length, encoding_dim)
         encoded_question = self._dropout(self._phrase_layer(embedded_question, question_lstm_mask))
         encoded_passage = self._dropout(self._phrase_layer(embedded_passage, passage_lstm_mask))
+        batch_size, num_tokens, _ = encoded_passage.size()
         encoding_dim = encoded_question.size(-1)
 
         # Shape: (extended_batch_size, passage_length, question_length)
@@ -273,10 +274,10 @@ class DocQANoAnswer(Model):
         best_span = self.get_best_span(span_start_logits, span_end_logits, z)
 
         output_dict = {
-                "span_start_logits": span_start_logits,
-                "span_start_probs": span_start_probs,
-                "span_end_logits": span_end_logits,
-                "span_end_probs": span_end_probs,
+                # "span_start_logits": span_start_logits,
+                # "span_start_probs": span_start_probs,
+                # "span_end_logits": span_end_logits,
+                # "span_end_probs": span_end_probs,
         }
 
         if spans is not None:
@@ -293,10 +294,11 @@ class DocQANoAnswer(Model):
             loss = no_answer_loss(passage_mask, span_start_logits, span_end_logits, span_starts, span_ends, z)
 
             # (batch_size, num_paragraphs, num_tokens)
-            output_dict["loss"] = loss
+            output_dict["loss"] = loss.unsqueeze(0)
 
         if metadata is not None:
             output_dict['best_span_str'] = []
+            output_dict['question_id'] = []
             batch_size = len(metadata)
             for i in range(batch_size):
                 # paragraph_idx = int(best_paragraphs[i].data.cpu().numpy())
@@ -311,6 +313,7 @@ class DocQANoAnswer(Model):
                     best_span_string = passage_str[start_offset:end_offset]
                 # print(predicted_span, best_span_string)
                 output_dict['best_span_str'].append(best_span_string)
+                output_dict['question_id'].append(metadata[i]['question_id'])
 
                 answer_texts = metadata[i].get('answer_texts', [])
                 exact_match = f1_score = 0
