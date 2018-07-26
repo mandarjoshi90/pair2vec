@@ -25,7 +25,7 @@
   "subd_embed": 100,
   "num_positions": 16,
   "d_embed": 300,
-  "normalize_pretrained": true,
+  "normalize_pretrained": false,
   "normalize_args": false,
   "d_lstm_input": 300,
   "d_lstm_hidden": 100,
