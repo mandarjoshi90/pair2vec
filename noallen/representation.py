@@ -50,50 +50,6 @@ def get_subword_vocab(vocab_file):
             itos.append(line.strip())
     return Vocab(itos, specials=['<unk>'])
 
-# def get_word_to_subwords(word_to_subwords_file, word_vocab, subword_vocab):
-    # mapping = [[]] * len(word_vocab)
-    # max_len = 0
-    # with open(word_to_subwords, encoding='utf-8') as f:
-        # for line in f:
-            # parts = line.strip().split('\t')
-            # for subword in parts[1:]:
-                # word_idx = word_vocab.stoi[parts[0]]
-                # mapping[word_idx].append(subword_vocab.stoi[subword])
-                # max_len = max_len if len(mapping[word_idx]) < max_len else len(mapping[word_idx])
-    # numpy_map = np.zeros(len(word_vocab), max_len)
-    # for i, subword_list in enumerate(mapping):
-        # for j, subword_idx in enumerate(subword_list):
-            # numpy_map[i, j] = subword_idx
-    # return torch.from_(numpy_map)
-
-def get_subwords(word, minn, maxn):
-    ngrams = []
-    word = '<' + word  + '>'
-    for start in range(len(word)):
-        for end in range(start+minn, min(start+maxn+1, len(word)+1)):
-            if end - start < len(word):
-                ngrams.append(word[start:end])
-    return ngrams[:10]
-
-def get_word_to_subwords(word_vocab, subword_vocab, minn, maxn):
-    mapping = []
-    max_len = 0
-    for word_idx, word in enumerate(word_vocab.itos):
-        mapping.append([])
-        if word in word_vocab.specials:
-            continue
-        subwords = get_subwords(word, minn, maxn)
-        subwords = [subw for subw in subwords if subword_vocab.stoi[subw] != 0]
-        for subword in subwords:
-            mapping[word_idx].append(subword_vocab.stoi[subword])
-        max_len = max_len if len(mapping[word_idx]) < max_len else len(mapping[word_idx])
-    print(len(word_vocab), max_len, minn, maxn)
-    numpy_map = np.zeros((len(word_vocab), max_len), dtype=int)
-    for i, subword_list in enumerate(mapping):
-        for j, subword_idx in enumerate(subword_list):
-            numpy_map[i, j] = subword_idx
-    return torch.from_numpy(numpy_map)
-
 def get_word_to_bpe_subwords(word_vocab, subword_vocab, sp):
     mapping = []
     max_len = 0
@@ -119,8 +75,10 @@ class SubwordEmbedding(Module):
         super(SubwordEmbedding, self).__init__()
         self.word_embedding = Embedding(len(vocab), config.d_embed)
         self.subword_vocab = get_subword_vocab(config.subword_vocab_file)
-        self.subword_vocab.load_vectors(Vectors('en.wiki.bpe.op5000.d300.w2v.txt', '/home/mandar90/data/bpemb'))
-        self.subword_embedding = Embedding(len(self.subword_vocab), config.d_embed) 
+        init_with_pretrained = getattr(config, 'init_with_pretrained', True)
+        vectors, vectors_cache = (None, None) if not init_with_pretrained else (getattr(config, 'subword_vecs', 'en.wiki.bpe.op5000.d100.w2v.txt'), getattr(config, 'subword_vecs_cache', 'data/bpemb'))
+        self.subword_vocab.load_vectors(Vectors(vectors, vectors_cache))
+        self.subword_embedding = Embedding(len(self.subword_vocab), config.subd_embed)
         self.config = config
         self.word_vocab = vocab
         sp = spm.SentencePieceProcessor()
@@ -128,10 +86,13 @@ class SubwordEmbedding(Module):
         lens = [len(subw) for subw in self.subword_vocab.itos[1:]]
         minn, maxn = min(lens), max(lens)
         self.word_to_subwords = get_word_to_bpe_subwords(vocab, self.subword_vocab, sp).cuda()
-        # self.subword_map = Embedding(self.word_to_subwords.size(0), self.word_to_subwords.size(1))
-        # self.subword_map.weight.requires_grad = False
-        # self.subword_map.weight.data.copy_(self.word_to_subwordsfloat())
-        #self.word_to_subwords = Variable(get_word_to_bpe_subwords(vocab, self.subword_vocab, sp), requires_grad=False).cuda()
+        merge_fn_str = getattr(config, 'subword_merge_function', 'add')
+        if merge_fn_str == 'add':
+            self.merge = lambda x,y : x + y
+        elif merge_fn_str == 'cat':
+            self.merge = lambda x,y : torch.cat((x,y), -1)
+        else:
+            raise NotImplementedError()
         self.init()
 
     def init(self):
@@ -139,24 +100,26 @@ class SubwordEmbedding(Module):
         if self.word_vocab.vectors is not None:
             pretrained = normalize(self.word_vocab.vectors, dim=-1) if self.config.normalize_pretrained else self.word_vocab.vectors
             self.word_embedding.weight.data.copy_(pretrained)
+            print('Copied pretrained word vecs for argument matrix')
         else:
             self.word_embedding.reset_parameters()
         if self.subword_vocab.vectors is not None:
             pretrained = normalize(self.subword_vocab.vectors, dim=-1) if self.config.normalize_pretrained else self.subword_vocab.vectors
             self.subword_embedding.weight.data.copy_(pretrained)
+            print('Copied pretrained subword vecs for argument matrix')
         else:
             self.subword_embedding.reset_parameters()
 
     def forward(self, word):
         word_embedding = self.word_embedding(word)
-        # subword_embedding_seq = self.subword_map(word)
         subword_embedding_seq = Variable(torch.index_select(self.word_to_subwords, 0, word.data), requires_grad=False)
         subword_embeddings = self.subword_embedding(subword_embedding_seq)
         # import ipdb
         # ipdb.set_trace()
         mask = 1 - torch.eq(subword_embedding_seq, 0).float()
         subword_embeddings = subword_embeddings * mask.unsqueeze(2).expand_as(subword_embeddings)
-        return word_embedding + subword_embeddings.sum(1)
+        final_embedding = self.merge(word_embedding, subword_embeddings.sum(1))
+        return final_embedding
 
 
 class PositionalRepresentation(Module):

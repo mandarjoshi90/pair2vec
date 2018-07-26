@@ -157,10 +157,11 @@ def create_vocab(config, field):
     with open(vocab_path) as f:
         text = f.read()
         tokens = text.rstrip().split('\n')
-    # specials = list(OrderedDict.fromkeys(tok for tok in [field.unk_token, field.pad_token, field.init_token, field.eos_token] if tok is not None))
     specials = ['<unk>', '<pad>', '<X>', '<Y>'] if config.compositional_rels else ['<unk>', '']
     #vocab = Vocab(tokens, specials=specials, vectors='glove.6B.300d', vectors_cache='/glove')
-    vocab = Vocab(tokens, specials=specials, vectors='fasttext.en.300d', vectors_cache='data/fasttext')
+    init_with_pretrained = getattr(config, 'init_with_pretrained', True)
+    vectors, vectors_cache = (None, None) if not init_with_pretrained else (getattr(config, 'word_vecs', 'fasttext.en.300d'), getattr(config, 'word_vecs_cache', 'data/fasttext'))
+    vocab = Vocab(tokens, specials=specials, vectors=vectors, vectors_cache=vectors_cache)
     #vocab = Vocab(tokens, specials=specials)
     field.vocab  = vocab
 
@@ -208,7 +209,7 @@ def read_data(config, return_nl=False, preindex=True):
     type_scores_file = config.type_scores_file if hasattr(config, 'type_scores_file') else None
     type_indices_file = config.type_indices_file if hasattr(config, 'type_indices_file') else None
 
-    train_iterator = TripletIterator(config.train_batch_size, fields , return_nl=return_nl, 
+    train_iterator = TripletIterator(config.train_batch_size, fields , return_nl=return_nl,
             compositional_rels=config.compositional_rels, type_scores_file=type_scores_file, type_indices_file=type_indices_file, pairwise=config.pairwise, num_neg_samples=config.num_neg_samples,
             alpha=getattr(config, 'alpha', 0.75), num_sampled_relations=getattr(config, 'num_sampled_relations', 1))
     dev_iterator = TripletIterator(config.dev_batch_size, fields, return_nl=return_nl, compositional_rels=config.compositional_rels, pairwise=config.pairwise, num_neg_samples=config.num_neg_samples,
