@@ -1,7 +1,7 @@
 import numpy as np
 import sentencepiece as spm
 import torch
-from torch.nn import Module, Linear, Dropout, Sequential, LSTM, Embedding, GRU, ReLU
+from torch.nn import Module, Linear, Dropout, Sequential, LSTM, Embedding, GRU, ReLU, Parameter
 from torch.nn.functional import softmax, normalize, embedding
 from allennlp.nn.util import masked_softmax
 from torch.autograd import Variable
@@ -31,6 +31,7 @@ class SpanRepresentation(Module):
         if self.vocab.vectors is not None:
             pretrained = normalize(self.vocab.vectors, dim=-1) if self.normalize_pretrained else self.vocab.vectors
             self.embedding.weight.data.copy_(pretrained)
+            print('Copied pretrained vectors into relation span representation')
         else:
             #xavier_normal(self.embedding.weight.data)
             self.embedding.reset_parameters()
@@ -42,6 +43,60 @@ class SpanRepresentation(Module):
         weights = masked_softmax(self.head_attention(text).squeeze(-1), mask.float())
         representation = (weights.unsqueeze(2) * self.head_transform(text)).sum(dim=1)
         return representation
+
+class RelationLM(Module):
+    def __init__(self, config, vocab):
+        super(RelationLM, self).__init__()
+        self.vocab = vocab
+        self.config = config
+        self.embedding = Embedding(len(self.vocab), config.d_rels)
+        self.normalize_pretrained = getattr(config, 'normalize_pretrained', False)
+        self.contextualizer = LSTMContextualizer(config) if config.n_lstm_layers > 0 else lambda x : x
+        self.contextualizer = LSTM(input_size=config.d_lstm_input , hidden_size=config.d_lstm_hidden, num_layers=config.n_lstm_layers, dropout=config.dropout, bidirectional=False)
+        self.decoder = Linear(config.d_lstm_hidden, len(vocab))
+        self.sos_embedding = Parameter(torch.randn(config.d_rels, out=self.embedding.weight.data.new()))
+        if config.tie_weights:
+            self.decoder.weight = self.embedding.weight
+        self.init()
+
+    def init(self):
+        [xavier_normal(p) for p in self.parameters() if len(p.size()) > 1]
+        if self.vocab.vectors is not None:
+            pretrained = normalize(self.vocab.vectors, dim=-1) if self.normalize_pretrained else self.vocab.vectors
+            self.embedding.weight.data.copy_(pretrained)
+            print('Copied pretrained vectors into relation span representation')
+        else:
+            self.embedding.reset_parameters()
+
+    def forward(self, predicted_rel_embed, observed_relations):
+        text, mask = observed_relations
+        rel_word_embeddings = self.embedding(text)
+        bs, seq_len, _ = rel_word_embeddings.size()
+        sos = self.sos_embedding.unsqueeze(0).unsqueeze(0).expand(bs, 1, self.sos_embedding.size(-1))
+        rel_word_embeddings = torch.cat((sos, rel_word_embeddings[:, :seq_len - 1, :]), 1)
+        rnn_input = torch.cat((rel_word_embeddings, predicted_rel_embed.unsqueeze(1).expand(bs, seq_len, predicted_rel_embed.size(-1))), -1)
+        rnn_output = self.contextualizer(rnn_input.permute(1,0,2))[0].permute(1,0,2)
+        scores = self.decoder(rnn_output).view(-1, len(self.vocab))
+        # import ipdb
+        # ipdb.set_trace()
+        return scores
+
+
+class LSTMContextualizer(Module):
+    def __init__(self, config):
+        super(LSTMContextualizer, self).__init__()
+        self.config = config
+        bidirectional = getattr(config, 'bidirectional', True)
+        self.rnn = LSTM(input_size=config.d_lstm_input, hidden_size=config.d_lstm_hidden, num_layers=config.n_lstm_layers, dropout=config.dropout, bidirectional=bidirectional)
+
+    def forward(self, inputs):
+        inputs = inputs.permute(1, 0, 2)
+        #batch_size = inputs.size()[1]
+        #state_shape = self.config.n_lstm_layers * 2, batch_size, self.config.d_lstm_hidden
+        #h0 = c0 = Variable(inputs.data.new(*state_shape).zero_())
+        #outputs, (ht, ct) = self.rnn(inputs )  # outputs: [seq_len, batch, hidden * 2]
+        outputs, _ = self.rnn(inputs )  # outputs: [seq_len, batch, hidden * 2]
+        return outputs.permute(1, 0, 2)
 
 def get_subword_vocab(vocab_file):
     itos = []
@@ -186,17 +241,3 @@ class LRPositionalRepresentation(Module):
             self.right_embedding.reset_parameters()
             self.mid_embedding.reset_parameters()
 
-class LSTMContextualizer(Module):
-    def __init__(self, config):
-        super(LSTMContextualizer, self).__init__()
-        self.config = config
-        self.rnn = LSTM(input_size=config.d_lstm_input, hidden_size=config.d_lstm_hidden, num_layers=config.n_lstm_layers, dropout=config.dropout, bidirectional=True)
-
-    def forward(self, inputs):
-        inputs = inputs.permute(1, 0, 2)
-        #batch_size = inputs.size()[1]
-        #state_shape = self.config.n_lstm_layers * 2, batch_size, self.config.d_lstm_hidden
-        #h0 = c0 = Variable(inputs.data.new(*state_shape).zero_())
-        #outputs, (ht, ct) = self.rnn(inputs )  # outputs: [seq_len, batch, hidden * 2]
-        outputs, _ = self.rnn(inputs )  # outputs: [seq_len, batch, hidden * 2]
-        return outputs.permute(1, 0, 2)

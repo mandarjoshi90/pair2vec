@@ -13,9 +13,6 @@ logger = logging.getLogger(__name__)
 def load_model(resume_snapshot, model):
     if os.path.isfile(resume_snapshot):
         checkpoint = torch.load(resume_snapshot)
-        # keys_not_in_model = [key for key, value in checkpoint['state_dict'] if key not in model.state_dict]
-        # if len(keys_not_in_model) > 0:
-            # raise ValueError('Checkpoint keys not in model: {}'.format(keys_not_in_model))
         print("Loaded checkpoint '{}' (epoch {} iter: {} train_loss: {}, dev_loss: {}, train_pos:{}, train_neg: {}, dev_pos: {}, dev_neg: {})"
               .format(resume_snapshot, checkpoint['epoch'], checkpoint['iterations'], checkpoint['train_loss'], checkpoint['dev_loss'], checkpoint['train_pos'], checkpoint['train_neg'], checkpoint['dev_pos'], checkpoint['dev_neg']))
         model.load_state_dict(checkpoint['state_dict'], strict=True)

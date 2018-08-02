@@ -2,13 +2,14 @@ import torch
 from torch.autograd import Variable
 from typing import Dict
 from torch.nn import Module, Linear, Dropout, Sequential, Embedding, LogSigmoid, ReLU
-from torch.nn.functional import sigmoid, logsigmoid, softmax, normalize
+from torch.nn.functional import sigmoid, logsigmoid, softmax, normalize, log_softmax
 from allennlp.nn.util import get_text_field_mask
-from noallen.representation import SpanRepresentation, PositionalRepresentation, LRPositionalRepresentation, SubwordEmbedding
+from noallen.representation import SpanRepresentation, PositionalRepresentation, LRPositionalRepresentation, SubwordEmbedding, RelationLM
 from torch.nn.init import xavier_normal
 from noallen.util import pretrained_embeddings_or_xavier
 import numpy as np
 from torch.nn.functional import cosine_similarity
+
 def get_type_file(filename, vocab, indxs=False):
     data = np.load(filename)
     if len(vocab) - data.shape[0] > 0:
@@ -18,7 +19,6 @@ def get_type_file(filename, vocab, indxs=False):
     return torch.from_numpy(data)
 
 class RelationalEmbeddingModel(Module):
-    
     def __init__(self, config, arg_vocab, rel_vocab):
         super(RelationalEmbeddingModel, self).__init__()
         self.config = config
@@ -60,7 +60,6 @@ class RelationalEmbeddingModel(Module):
                 self.represent_arguments = Embedding(config.n_args, config.d_embed)
                 self.represent_left_argument = lambda x : self.represent_arguments(x)
                 self.represent_right_argument = (lambda x : self.represent_arguments(x)) if self.shared_arg_embeddings else Embedding(config.n_args, config.d_embed)
-        
         if config.compositional_rels:
             self.represent_relations = SpanRepresentation(config, config.d_rels, rel_vocab)
         else:
@@ -70,7 +69,6 @@ class RelationalEmbeddingModel(Module):
             else:
                 self.represent_relations = Embedding(config.n_rels, config.d_rels) if not self.separate_mlr else Embedding(3*config.n_rels, config.d_rels)
                 # self.represent_relations = Sequential(self.represent_relations, Linear(config.d_rels, config.d_rels))
-        
         if config.relation_predictor == 'multiplication':
             self.predict_relations = lambda x, y: x * y
         elif config.relation_predictor == 'mlp':
@@ -80,7 +78,7 @@ class RelationalEmbeddingModel(Module):
         else:
             raise Exception('Unknown relation predictor: ' + config.relation_predictor)
         self.init()
-    
+
     def to_tensors(self, fields):
         if isinstance(fields, Dict):
             return (field['tokens'], get_text_field_mask(field))
@@ -130,7 +128,6 @@ class RelationalEmbeddingModel(Module):
         output_dict['positive_loss'] = -logsigmoid(pos_rel_scores).sum()
         output_dict['negative_rel_loss'] = -logsigmoid(-neg_rel_scores).sum()
         # loss_weights =  [('positive_loss', 1.0), ('negative_rel_loss', 1.0), ('negative_subject_loss', 1.0), ('negative_object_loss', 1.0)]
-        
         # fake pair loss
         if sampled_subjects is not None and sampled_objects is not None:
             # sampled_subjects, sampled_objects = self.to_tensors((sampled_subjects, sampled_objects))
@@ -170,11 +167,121 @@ class RelationalEmbeddingModel(Module):
             sampled_idxs = torch.gather(argument_indices, 1, sampled_idx_idxs.unsqueeze(1)).squeeze(1)
         return Variable(sampled_idxs, requires_grad=False)
 
-
-
     def score(self, predicted, observed):
         return torch.bmm(predicted.unsqueeze(1), observed.unsqueeze(2)).squeeze(-1).squeeze(-1)
+
+class Pair2RelModel(Module):
+    def __init__(self, config, arg_vocab, rel_vocab):
+        super(Pair2RelModel, self).__init__()
+        self.config = config
+        self.arg_vocab = arg_vocab
+        self.rel_vocab = rel_vocab
+        self.compositional_rels = config.compositional_rels
+        self.normalize_pretrained = getattr(config, 'normalize_pretrained', False)
+        self.positional_rels = getattr(config, 'positional_rels', False)
+        self.pad = rel_vocab.stoi['<pad>']
+        self.shared_arg_embeddings = getattr(config, 'shared_arg_embeddings', True)
+        self.subword_vocab_file = getattr(config, 'subword_vocab_file', None)
+        if config.compositional_args:
+            self.represent_left_argument = SpanRepresentation(config, config.d_args, arg_vocab)
+            self.represent_right_argument = self.represent_left_argument if self.shared_arg_embeddings else SpanRepresentation(config, config.d_args, arg_vocab)
+        else:
+            if self.subword_vocab_file is not None:
+                self.represent_arguments = SubwordEmbedding(config, arg_vocab)
+                self.represent_left_argument = lambda x : self.represent_arguments(x)
+                self.represent_right_argument = (lambda x: self.represent_arguments(x)) if self.shared_arg_embeddings else SubwordEmbedding(config, arg_vocab)
+            else:
+                self.represent_arguments = Embedding(config.n_args, config.d_embed)
+                self.represent_left_argument = lambda x : self.represent_arguments(x)
+                self.represent_right_argument = (lambda x : self.represent_arguments(x)) if self.shared_arg_embeddings else Embedding(config.n_args, config.d_embed)
+        self.criterion = torch.nn.CrossEntropyLoss()
+        self.criterion = MaskedCrossEntropyLoss()
+        if config.compositional_rels:
+            self.relation_lm = RelationLM(config, rel_vocab)
+        else:
+            raise NotImplementedError()
+        if config.relation_predictor == 'multiplication':
+            self.predict_relations = lambda x, y: x * y
+        elif config.relation_predictor == 'mlp':
+            self.predict_relations = MLP(config)
+        elif config.relation_predictor == 'gated_interpolation':
+            self.predict_relations = GatedInterpolation(config)
+        else:
+            raise Exception('Unknown relation predictor: ' + config.relation_predictor)
+        self.init()
+
+    def to_tensors(self, fields):
+        if isinstance(fields, Dict):
+            return (field['tokens'], get_text_field_mask(field))
+        else:
+            return  ((field, 1.0 - torch.eq(field, self.pad).float()) if (len(field.size()) > 1 and (self.compositional_rels)) else field for field in fields)
+
+    def init(self):
+        for arg_matrix in [self.represent_arguments, self.represent_right_argument]:
+            if isinstance(arg_matrix, Embedding):
+                if self.arg_vocab.vectors is not None:
+                    pretrained = normalize(self.arg_vocab.vectors, dim=-1) if self.normalize_pretrained else self.arg_vocab.vectors
+                    arg_matrix.weight.data[:, :pretrained.size(1)].copy_(pretrained)
+                    print('Copied pretrained vecs for argument matrix')
+                else:
+                    arg_matrix.reset_parameters()
+
+    def forward(self, batch):
+        # import ipdb
+        # ipdb.set_trace()
+        subjects, objects, observed_relations  = batch
+        subjects, objects = self.to_tensors((subjects, objects))
+        embedded_subjects = self.represent_left_argument(subjects)
+        embedded_objects = self.represent_right_argument(objects)
+        predicted_relations = self.predict_relations(embedded_subjects, embedded_objects)
+        mask =  1.0 - torch.eq(observed_relations, self.pad).float()
+        scores = self.relation_lm(predicted_relations, (observed_relations, mask))
+        # loss = self.criterion(scores, observed_relations.view(-1))
+        loss = self.criterion(scores, observed_relations, mask)
+        output_dict = {'positive_loss': loss}
+        return predicted_relations, loss, output_dict
+
+class MaskedCrossEntropyLoss(Module):
+    def __init__(self):
+        super(MaskedCrossEntropyLoss, self).__init__()
+
+    def forward(self, logits, target, mask):
+        # logits_flat: (batch * max_len, num_classes)
+        logits_flat = logits.view(-1, logits.size(-1))
+        # log_probs_flat: (batch * max_len, num_classes)
+        log_probs_flat = log_softmax(logits_flat, dim=-1)
+        # target_flat: (batch * max_len, 1)
+        target_flat = target.view(-1, 1)
+        # losses_flat: (batch * max_len, 1)
+        losses_flat = -torch.gather(log_probs_flat, dim=1, index=target_flat)
+        # losses: (batch, max_len)
+        losses = losses_flat.view(*target.size())
+        # mask: (batch, max_len)
+        losses = losses * mask.float()
+        loss = (losses.sum(-1) / mask.float().sum(-1)).mean()
+        return loss
+
+class MLP(Module):
+    def __init__(self, config):
+        super(MLP, self).__init__()
+        self.dropout = Dropout(p=config.dropout)
+        self.nonlinearity  = ReLU()
+        self.normalize = normalize if getattr(config, 'normalize_args', False) else (lambda x : x)
+        layers = getattr(config, "mlp_layers", 4)
+        if layers == 2:
+            self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
+        elif layers == 3:
+            self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
+        elif layers == 4:
+            self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
+        else:
+            raise NotImplementedError()
     
+    def forward(self, subjects, objects):
+        #return self.mlp(torch.cat([subjects, objects, subjects * objects, subjects - objects], dim=-1))
+        subjects = self.normalize(subjects)
+        objects = self.normalize(objects)
+        return self.mlp(torch.cat([subjects, objects, subjects * objects], dim=-1))
 
 class PairwiseRelationalEmbeddingModel(Module):
     def __init__(self, config, arg_vocab, rel_vocab):
@@ -326,28 +433,6 @@ class KBEmbeddingModel(Module):
         output_dict['sampled_probabilities'] = sigmoid(neg_rel_scores)
         return predicted_relations, loss, output_dict
 
-class MLP(Module):
-    
-    def __init__(self, config):
-        super(MLP, self).__init__()
-        self.dropout = Dropout(p=config.dropout)
-        self.nonlinearity  = ReLU()
-        self.normalize = normalize if getattr(config, 'normalize_args', False) else (lambda x : x)
-        layers = getattr(config, "mlp_layers", 4)
-        if layers == 2:
-            self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
-        elif layers == 3:
-            self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
-        elif layers == 4:
-            self.mlp = Sequential(self.dropout, Linear(3 * config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_args), self.nonlinearity, self.dropout, Linear(config.d_args, config.d_rels))
-        else:
-            raise NotImplementedError()
-    
-    def forward(self, subjects, objects):
-        #return self.mlp(torch.cat([subjects, objects, subjects * objects, subjects - objects], dim=-1))
-        subjects = self.normalize(subjects)
-        objects = self.normalize(objects)
-        return self.mlp(torch.cat([subjects, objects, subjects * objects], dim=-1))
 
 
 class GatedInterpolation(Module):
