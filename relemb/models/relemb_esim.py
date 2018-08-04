@@ -227,8 +227,8 @@ class RelembESIM(Model):
             premise_as_args = embedder(premise[key])
             hypothesis_as_args = embedder(hypothesis[key])
 
-        embedded_premise = torch.cat((embedded_premise, premise_as_args), dim=-1)
-        embedded_hypothesis = torch.cat((embedded_hypothesis, hypothesis_as_args), dim=-1)
+        # embedded_premise = torch.cat((embedded_premise, premise_as_args), dim=-1)
+        # embedded_hypothesis = torch.cat((embedded_hypothesis, hypothesis_as_args), dim=-1)
 
         # embedded_premise = self._text_field_embedder(premise)
         # embedded_hypothesis = self._text_field_embedder(hypothesis)
@@ -294,6 +294,8 @@ class RelembESIM(Model):
 
                 attended_hypothesis_relations = self._relemb_dropout(weighted_sum(p2h_relations, p2h_rel_attention))
                 attended_premise_relations = self._relemb_dropout(weighted_sum(h2p_relations, h2p_rel_attention))
+                # attended_hypothesis_relations = (weighted_sum(p2h_relations, p2h_rel_attention))
+                # attended_premise_relations = (weighted_sum(h2p_relations, h2p_rel_attention))
                 attended_hypothesis_relations = attended_hypothesis_relations * relemb_premise_mask.float().unsqueeze(-1)
                 attended_premise_relations = attended_premise_relations * relemb_hypothesis_mask.float().unsqueeze(-1)
             elif self._ablation_type == 'rels_and_diff':
@@ -352,7 +354,9 @@ class RelembESIM(Model):
 
         # embedding -> lstm w/ do -> enhanced attention -> dropout_proj, only if ELMO -> ff proj -> lstm w/ do -> dropout -> ff 300 -> dropout -> output
 
-        # add dropout here with ELMO
+        # add dropout here with ELMOi
+        # premise_enhanced = self._relemb_dropout(premise_enhanced)
+        # hypothesis_enhanced = self._relemb_dropout(hypothesis_enhanced)
 
         # the projection layer down to the model dimension
         # no dropout in projection

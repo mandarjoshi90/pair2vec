@@ -58,6 +58,7 @@ class RelembDocQANoAnswer(Model):
             relemb_config.n_args = len(arg_vocab)
 
             self.relemb = RelationalEmbeddingModel(relemb_config, arg_vocab, rel_vocab)
+            print('before Init', self.relemb.represent_arguments.weight.data.norm())
             load_model(relemb_model_file, self.relemb)
             for param in self.relemb.parameters():
                 param.requires_grad = False
@@ -207,9 +208,9 @@ class RelembDocQANoAnswer(Model):
             passage_as_args = embedder(passage[key])
             question_as_args = embedder(question[key])
 
-
-        embedded_passage = torch.cat((embedded_passage, passage_as_args), dim=-1)
-        embedded_question = torch.cat((embedded_question, question_as_args), dim=-1)
+        # print('paassage as args', passage_as_args.requires_grad)
+        # embedded_passage = torch.cat((embedded_passage, normalize(passage_as_args, dim=-1)), dim=-1)
+        # embedded_question = torch.cat((embedded_question, normalize(question_as_args, dim=-1)), dim=-1)
 
         # Extended batch size takes into account batch size * num paragraphs
         extended_batch_size = embedded_question.size(0)
@@ -279,6 +280,9 @@ class RelembDocQANoAnswer(Model):
             attended_question_relations = attended_question_relations * relemb_passage_mask.float().unsqueeze(-1)
             attended_passage_relations = attended_passage_relations * relemb_passage_mask.float().unsqueeze(-1)
             attended_relations = torch.cat((attended_question_relations, attended_passage_relations), dim=-1)
+            # import ipdb
+            # ipdb.set_trace()
+            # print('Rel embed', attended_relations.requires_grad, attended_relations.norm())
         elif self._ablation_type == 'pairwise_diff':
             bs, passage_len, dim = passage_as_args.size()
             _, question_len, dim = question_as_args.size()
