@@ -6,7 +6,7 @@ from noallen.torchtext.vocab import Vocab
 from noallen.torchtext.indexed_field import Field
 from noallen.util import load_model, get_args, get_config
 import os
-from torch.nn.functional import log_softmax
+from torch.nn.functional import log_softmax, softmax
 
 def get_model(config_file, model_file):
     config = get_config(config_file)
@@ -42,7 +42,7 @@ def get_scores(relation_embedding, model):
         # import ipdb
         # ipdb.set_trace()
         output, hidden = model.relation_lm.contextualizer(inp.transpose(1,0)) if hidden is None else  model.relation_lm.contextualizer(inp.transpose(1,0), hidden)
-        step_scores = log_softmax(model.relation_lm.decoder(output.transpose(1,0)), -1)
+        step_scores = softmax(model.relation_lm.decoder(output.transpose(1,0)), -1)
         scores += [step_scores]
         best_scores, best_idxs = torch.max(step_scores, -1)
         prev_word_embed = model.relation_lm.embedding(best_idxs.squeeze(1)).unsqueeze(1)
@@ -87,5 +87,7 @@ def print_best_rels(config_file, model_file, pairs, bs=10):
 if __name__ == '__main__':
     config_file = sys.argv[1]
     model_file = sys.argv[2]
-    pairs = [('cheap', 'expensive'), ('portland', 'oregon'), ('animals', 'dogs'), ('portland', 'california'), ('monet', 'painter')]
+    pairs = [('cheap', 'expensive'), ('portland', 'oregon'), ('animals', 'dogs'), ('portland', 'california'), ('monet', 'painter'), ('hot', 'cold'), ('canada', 'country'), ('tesla', 'alternative'), ('einstein', 'relativity'), ('ford', 'car'), ('orange', 'orchard'), ('kangaroo', 'marsupial'), ('pilot', 'attendant'), ('fire', 'extinguisher'), ('bees', 'honey')]
+    pairs = pairs + [(y, x) for x, y in pairs]
+    pairs = sorted(pairs, key=lambda xy: sorted(xy[0]+xy[1]))
     print_best_rels(config_file, model_file, pairs)
