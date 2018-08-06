@@ -109,7 +109,7 @@ class Config:
 
 def get_config(filename, exp_name=None, save_path=None):
     config_dict = pyhocon.ConfigFactory.parse_file(filename)
-    if exp_name in config_dict:
+    if exp_name is not None and exp_name in config_dict:
         config_dict = config_dict[exp_name]
     config = Config(**config_dict)
     if save_path is not None:
