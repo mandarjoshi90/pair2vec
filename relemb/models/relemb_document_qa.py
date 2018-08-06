@@ -17,7 +17,7 @@ from noallen.torchtext.vocab import Vocab
 from noallen.torchtext.matrix_data import create_vocab
 from noallen.torchtext.indexed_field import Field
 from noallen.util import load_model, get_config
-from noallen.model import RelationalEmbeddingModel
+from noallen.model import RelationalEmbeddingModel, PairwiseRelationalEmbeddingModel, Pair2RelModel
 from torch.nn.functional import normalize
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
@@ -56,8 +56,17 @@ class RelembDocQANoAnswer(Model):
             arg_vocab = field.vocab
             rel_vocab = arg_vocab
             relemb_config.n_args = len(arg_vocab)
+            model_type = getattr(relemb_config, 'model_type', 'sampling')
+            model_type = getattr(relemb_config, 'model_type', 'sampling')
+            if model_type == 'pairwise':
+                self.relemb = PairwiseRelationalEmbeddingModel(relemb_config, arg_vocab, rel_vocab)
+            elif model_type == 'sampling':
+                self.relemb = RelationalEmbeddingModel(relemb_config, arg_vocab, rel_vocab)
+            elif model_type == 'pair2seq':
+                self.relemb = Pair2RelModel(relemb_config, arg_vocab, rel_vocab)
+            else:
+                raise NotImplementedError()
 
-            self.relemb = RelationalEmbeddingModel(relemb_config, arg_vocab, rel_vocab)
             print('before Init', self.relemb.represent_arguments.weight.data.norm())
             load_model(relemb_model_file, self.relemb)
             for param in self.relemb.parameters():
