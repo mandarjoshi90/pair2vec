@@ -194,7 +194,7 @@ class Pair2RelModel(Module):
                 self.represent_arguments = Embedding(config.n_args, config.d_embed)
                 self.represent_left_argument = lambda x : self.represent_arguments(x)
                 self.represent_right_argument = (lambda x : self.represent_arguments(x)) if self.shared_arg_embeddings else Embedding(config.n_args, config.d_embed)
-        self.criterion = torch.nn.CrossEntropyLoss()
+        # self.criterion = torch.nn.CrossEntropyLoss()
         self.criterion = MaskedCrossEntropyLoss()
         if config.compositional_rels:
             self.relation_lm = RelationLM(config, rel_vocab)
@@ -236,7 +236,7 @@ class Pair2RelModel(Module):
         predicted_relations = self.predict_relations(embedded_subjects, embedded_objects)
         mask =  1.0 - torch.eq(observed_relations, self.pad).float()
         scores = self.relation_lm(predicted_relations, (observed_relations, mask))
-        # loss = self.criterion(scores, observed_relations.view(-1))
+        # loss = self.criterion(scores.view(-1, scores.size(-1)), observed_relations.view(-1))
         loss = self.criterion(scores, observed_relations, mask)
         output_dict = {'positive_loss': loss}
         return predicted_relations, loss, output_dict

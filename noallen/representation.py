@@ -49,12 +49,15 @@ class RelationLM(Module):
         super(RelationLM, self).__init__()
         self.vocab = vocab
         self.config = config
-        self.embedding = Embedding(len(self.vocab), config.d_rels)
+        self.embedding_size = 100
+        self.embedding = Embedding(len(self.vocab), self.embedding_size)
         self.normalize_pretrained = getattr(config, 'normalize_pretrained', False)
-        self.contextualizer = LSTMContextualizer(config) if config.n_lstm_layers > 0 else lambda x : x
-        self.contextualizer = LSTM(input_size=config.d_lstm_input , hidden_size=config.d_lstm_hidden, num_layers=config.n_lstm_layers, dropout=config.dropout, bidirectional=False)
-        self.decoder = Linear(config.d_lstm_hidden, len(vocab))
-        self.sos_embedding = Parameter(torch.randn(config.d_rels, out=self.embedding.weight.data.new()))
+        # self.contextualizer = LSTMContextualizer(config) if config.n_lstm_layers > 0 else lambda x : x
+        # self.contextualizer = LSTM(input_size=config.d_lstm_input , hidden_size=config.d_lstm_hidden, num_layers=config.n_lstm_layers, dropout=config.dropout, bidirectional=False)
+        self.contextualizer = LSTM(400 , self.embedding_size, num_layers=config.n_lstm_layers, dropout=config.dropout, bidirectional=False)
+        # self.contextualizer = Linear(config.d_lstm_input, config.d_lstm_hidden)
+        self.decoder = Linear(self.embedding_size, len(vocab))
+        self.sos_embedding = Parameter(torch.randn(self.embedding_size, out=self.embedding.weight.data.new()))
         if config.tie_weights:
             self.decoder.weight = self.embedding.weight
         self.init()
@@ -63,7 +66,7 @@ class RelationLM(Module):
         [xavier_normal(p) for p in self.parameters() if len(p.size()) > 1]
         if self.vocab.vectors is not None:
             pretrained = normalize(self.vocab.vectors, dim=-1) if self.normalize_pretrained else self.vocab.vectors
-            self.embedding.weight.data.copy_(pretrained)
+            self.embedding.weight.data.copy_(pretrained[:,:self.embedding_size])
             print('Copied pretrained vectors into relation span representation')
         else:
             self.embedding.reset_parameters()
@@ -76,9 +79,8 @@ class RelationLM(Module):
         rel_word_embeddings = torch.cat((sos, rel_word_embeddings[:, :seq_len - 1, :]), 1)
         rnn_input = torch.cat((rel_word_embeddings, predicted_rel_embed.unsqueeze(1).expand(bs, seq_len, predicted_rel_embed.size(-1))), -1)
         rnn_output = self.contextualizer(rnn_input.permute(1,0,2))[0].permute(1,0,2)
-        scores = self.decoder(rnn_output).view(-1, len(self.vocab))
-        # import ipdb
-        # ipdb.set_trace()
+        # rnn_output = self.contextualizer(rnn_input)
+        scores = self.decoder(rnn_output)
         return scores
 
 
