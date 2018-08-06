@@ -47,8 +47,9 @@ def analyse_positives(baseline_f, model_f, data_f):
             count += 1
     print('count', count)
 
-import sys
-baseline_f = sys.argv[1]
-model_f = sys.argv[2]
-data_f = sys.argv[3]
-analyse_positives(baseline_f, model_f, data_f)
+if __name__ == '__main__':
+    import sys
+    baseline_f = sys.argv[1]
+    model_f = sys.argv[2]
+    data_f = sys.argv[3]
+    analyse_positives(baseline_f, model_f, data_f)
