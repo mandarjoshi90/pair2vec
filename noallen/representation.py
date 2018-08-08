@@ -133,8 +133,9 @@ class SubwordEmbedding(Module):
         self.word_embedding = Embedding(len(vocab), config.d_embed)
         self.subword_vocab = get_subword_vocab(config.subword_vocab_file)
         init_with_pretrained = getattr(config, 'init_with_pretrained', True)
-        vectors, vectors_cache = (None, None) if not init_with_pretrained else (getattr(config, 'subword_vecs', 'en.wiki.bpe.op5000.d100.w2v.txt'), getattr(config, 'subword_vecs_cache', 'data/bpemb'))
-        self.subword_vocab.load_vectors(Vectors(vectors, vectors_cache))
+        if init_with_pretrained:
+            vectors, vectors_cache = (None, None) if not init_with_pretrained else (getattr(config, 'subword_vecs', 'en.wiki.bpe.op5000.d100.w2v.txt'), getattr(config, 'subword_vecs_cache', 'data/bpemb'))
+            self.subword_vocab.load_vectors(Vectors(vectors, vectors_cache))
         self.subword_embedding = Embedding(len(self.subword_vocab), config.subd_embed)
         self.config = config
         self.word_vocab = vocab
