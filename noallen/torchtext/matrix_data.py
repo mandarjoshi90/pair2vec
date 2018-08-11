@@ -208,7 +208,7 @@ def read_data(config, return_nl=False, preindex=True):
     rels.vocab = args.vocab
     config.n_args = len(args.vocab)
     config.n_rels = len(rels.vocab)
-    sample_arguments = hasattr(config, "sample_arguments") and config.sample_arguments
+    sample_arguments = getattr(config, "sample_arguments", True) 
     fields = fields + [rels, args, args] if sample_arguments else fields  + [rels]
     type_scores_file = config.type_scores_file if hasattr(config, 'type_scores_file') else None
     type_indices_file = config.type_indices_file if hasattr(config, 'type_indices_file') else None
