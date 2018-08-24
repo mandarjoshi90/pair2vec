@@ -11,6 +11,7 @@
     "validation_data_path": "data/squad/dev-v2.0.json",
     "model": {
         "type": "docqa-no-answer",
+        "rnn_input_dropout": 0.5,
         "text_field_embedder": {
             "elmo": {
                 "type": "elmo_token_embedder",
