@@ -4,7 +4,7 @@ from relemb.modules.loss import no_answer_loss
 import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
-
+from relemb.models.esim import VariationalDropout
 from allennlp.common import Params, squad_eval
 from relemb.data import squad2_eval
 from allennlp.data import Vocabulary
@@ -49,6 +49,7 @@ class DocQANoAnswer(Model):
                  no_answer_scorer: FeedForward,
                  initializer: InitializerApplicator,
                  dropout: float = 0.2,
+                 rnn_input_dropout: float = 0.5,
                  mask_lstms: bool = True) -> None:
         super().__init__(vocab)
 
@@ -85,6 +86,7 @@ class DocQANoAnswer(Model):
         self._span_accuracy = BooleanAccuracy()
         self._official_em = Average()
         self._official_f1 = Average()
+        self._rnn_input_dropout = VariationalDropout(p=rnn_input_dropout)
         if dropout > 0:
             self._dropout = torch.nn.Dropout(p=dropout)
             # self._dropout = VariationalDropout(p=dropout)
@@ -146,8 +148,10 @@ class DocQANoAnswer(Model):
         """
 
         # Send through text-field embedder
-        embedded_question = self._dropout(self._text_field_embedder(question))
-        embedded_passage = self._dropout(self._text_field_embedder(passage))
+        #embedded_question = self._rnn_input_dropout(self.get_embedding(self._embedding_keys, question))
+        #embedded_passage = self._rnn_input_dropout(self.get_embedding(self._embedding_keys, passage))
+        embedded_question = self._rnn_input_dropout(self._text_field_embedder(question))
+        embedded_passage = self._rnn_input_dropout(self._text_field_embedder(passage))
 
         # Extended batch size takes into account batch size * num paragraphs
         extended_batch_size = embedded_question.size(0)
@@ -379,6 +383,7 @@ class DocQANoAnswer(Model):
         no_answer_scorer = FeedForward.from_params(params.pop("no_answer_scorer"))
         initializer = InitializerApplicator.from_params(params.pop("initializer", []))
         dropout = params.pop('dropout', 0.2)
+        rnn_input_dropout = params.pop('rnn_input_dropout', 0.5)
 
         # TODO: Remove the following when fully deprecated
         evaluation_json_file = params.pop('evaluation_json_file', None)
@@ -396,4 +401,5 @@ class DocQANoAnswer(Model):
                    no_answer_scorer=no_answer_scorer,
                    initializer=initializer,
                    dropout=dropout,
+                   rnn_input_dropout=rnn_input_dropout,
                    mask_lstms=mask_lstms)

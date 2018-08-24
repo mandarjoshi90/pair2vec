@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
 
+from relemb.models.esim import VariationalDropout
 from allennlp.common import Params, squad_eval
 from relemb.data import squad2_eval
 from allennlp.data import Vocabulary
@@ -46,6 +47,7 @@ class RelembDocQANoAnswer(Model):
                  mask_key,
                  initializer: InitializerApplicator,
                  dropout: float = 0.2,
+                 rnn_input_dropout: float = 0.5,
                  mask_lstms: bool = True) -> None:
         super().__init__(vocab)
         self._ablation_type = ablation_type
@@ -110,9 +112,10 @@ class RelembDocQANoAnswer(Model):
         self._span_accuracy = BooleanAccuracy()
         self._official_em = Average()
         self._official_f1 = Average()
+        self._rnn_input_dropout = VariationalDropout(p=rnn_input_dropout)
         if dropout > 0:
             self._dropout = torch.nn.Dropout(p=dropout)
-            # self._dropout = VariationalDropout(p=dropout)
+            #self._dropout = VariationalDropout(p=dropout)
         else:
             self._dropout = lambda x: x
         self._mask_lstms = mask_lstms
@@ -204,10 +207,10 @@ class RelembDocQANoAnswer(Model):
         # relemb_question_tokens = question['relemb_tokens']
         # del passage['relemb_tokens']
         # del question['relemb_tokens']
-        # embedded_question = self._dropout(self._text_field_embedder(question))
-        # embedded_passage = self._dropout(self._text_field_embedder(passage))
-        embedded_question = self._dropout(self.get_embedding(self._embedding_keys, question))
-        embedded_passage = self._dropout(self.get_embedding(self._embedding_keys, passage))
+        # embedded_question = self._rnn_input_dropout(self._text_field_embedder(question))
+        # embedded_passage = self._rnn_input_dropout(self._text_field_embedder(passage))
+        embedded_question = self._rnn_input_dropout(self.get_embedding(self._embedding_keys, question))
+        embedded_passage = self._rnn_input_dropout(self.get_embedding(self._embedding_keys, passage))
         if self._ablation_type != 'pairwise_diff':
             passage_as_args = self.get_argument_rep(passage['relemb_tokens'])
             question_as_args = self.get_argument_rep(question['relemb_tokens'])
@@ -489,6 +492,7 @@ class RelembDocQANoAnswer(Model):
         no_answer_scorer = FeedForward.from_params(params.pop("no_answer_scorer"))
         initializer = InitializerApplicator.from_params(params.pop("initializer", []))
         dropout = params.pop('dropout', 0.2)
+        rnn_input_dropout = params.pop('rnn_input_dropout', 0.5)
         relemb_dropout = params.pop("relemb_dropout", 0)
         pretrained_file = params.pop('model_file')
         config_file = params.pop('config_file')
@@ -519,4 +523,5 @@ class RelembDocQANoAnswer(Model):
                    mask_key=mask_key,
                    initializer=initializer,
                    dropout=dropout,
+                   rnn_input_dropout=rnn_input_dropout,
                    mask_lstms=mask_lstms)

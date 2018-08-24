@@ -234,8 +234,8 @@ class RelembESIM(Model):
             premise_as_args = embedder(premise[key])
             hypothesis_as_args = embedder(hypothesis[key])
 
-        # embedded_premise = torch.cat((embedded_premise, premise_as_args), dim=-1)
-        # embedded_hypothesis = torch.cat((embedded_hypothesis, hypothesis_as_args), dim=-1)
+        #embedded_premise = torch.cat((embedded_premise, premise_as_args), dim=-1)
+        #embedded_hypothesis = torch.cat((embedded_hypothesis, hypothesis_as_args), dim=-1)
 
         # embedded_premise = self._text_field_embedder(premise)
         # embedded_hypothesis = self._text_field_embedder(hypothesis)
@@ -405,7 +405,7 @@ class RelembESIM(Model):
 
         if label is not None:
             loss = self._loss(label_logits, label.long().view(-1))
-            self._accuracy(label_logits, label.squeeze(-1))
+            self._accuracy(label_logits, label)
             output_dict["loss"] = loss
 
         return output_dict
