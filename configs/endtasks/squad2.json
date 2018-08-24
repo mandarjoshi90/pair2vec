@@ -21,6 +21,7 @@
         "type": "relemb-docqa-no-answer",
         "relemb_dropout": 0.15,
         "mask_key": "elmo",
+        "rnn_input_dropout": 0.5,
         "ablation_type": "attn_over_rels",
         "config_file": "models/typed_2-2_normalized/relemb.json",
         "model_file": "models/typed_2-2_normalized/best.pt",
