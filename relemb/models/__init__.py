@@ -9,5 +9,10 @@ from relemb.models.pairwise_wrapper import PairwiseWrapper
 from relemb.models.dat_modified import ModifiedDecomposableAttention
 from relemb.models.vanilla_dam import VanillaDam
 from relemb.models.relemb_esim import RelembESIM
+from relemb.models.esim import ESIM
 from relemb.models.document_qa import DocQANoAnswer
+from relemb.models.bna import BidafNoAnswer
 from relemb.models.relemb_document_qa import RelembDocQANoAnswer
+from relemb.models.srl_relemb import RelembSemanticRoleLabeler
+from relemb.models.coref_relemb import RelembCoreferenceResolver
+from relemb.models.dialog_qa import RelembDialogQA
