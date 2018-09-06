@@ -114,5 +114,6 @@ def preprocess(data_dir, files=('train.txt', 'valid.txt', 'test.txt'), preproces
     write_to_file(os.path.join(preprocess_dir, 'subject_relation_to_objects.tsv'), subject_relation_to_objects)
     write_to_file(os.path.join(preprocess_dir, 'object_relation_to_subjects.tsv'), object_relation_to_subjects)
 
-import sys
-preprocess(sys.argv[1])
+if __name__ == '__main__':
+    import sys
+    preprocess(sys.argv[1])

@@ -77,7 +77,8 @@ def preprocess(in_filename, out_dir, allow_multiword):
             outf.write('\t'.join(line) )
     split_dataset(filtered, out_dir)
 
-allow_multiword = False
-if len(sys.argv) > 3:
-    allow_multiword = bool(sys.argv[3])
-preprocess(sys.argv[1], sys.argv[2], allow_multiword)
+if __name__ == '__main__':
+    allow_multiword = False
+    if len(sys.argv) > 3:
+        allow_multiword = bool(sys.argv[3])
+    preprocess(sys.argv[1], sys.argv[2], allow_multiword)
