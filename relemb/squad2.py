@@ -2,7 +2,12 @@ from overrides import overrides
 
 from allennlp.common.util import JsonDict
 from allennlp.data import Instance
-from allennlp.predictors.predictor import Predictor
+import allennlp
+version = allennlp.version._MINOR
+if version == "4":
+    from allennlp.service.predictors.predictor import Predictor
+else:
+    from allennlp.predictors.predictor import Predictor
 
 @Predictor.register('squad2-predictor')
 class Squad2Predictor(Predictor):
