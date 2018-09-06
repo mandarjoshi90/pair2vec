@@ -21,6 +21,7 @@ class BPETokenizer():
         self.subword_vocab = get_subword_vocab(subword_vocab_file)
 
     def tokenize(self, word):
+        word = word.lower()
         subwords = self.sp.EncodeAsPieces(word)[:self.subword_limit]
         subwords = [subw.decode('utf-8') for subw in subwords]
         subwords = [(subw, self.subword_vocab.stoi[subw]) for subw in subwords if self.subword_vocab.stoi[subw] != 0]
@@ -64,7 +65,7 @@ class BPESubwordsIndexer(TokenIndexer[List[int]]):
         indices = []
         if token.text is None:
             raise ConfigurationError('TokenCharactersIndexer needs a tokenizer that retains text')
-        for subword, subword_id in self._character_tokenizer.tokenize(token.text):
+        for subword, subword_id in self._subword_tokenizer.tokenize(token.text):
             indices.append(subword_id)
             # if getattr(character, 'text_id', None) is not None:
                 # # `text_id` being set on the token means that we aren't using the vocab, we just
