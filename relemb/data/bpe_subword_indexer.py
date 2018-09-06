@@ -60,7 +60,6 @@ class BPESubwordsIndexer(TokenIndexer[List[int]]):
             # if getattr(character, 'text_id', None) is None:
                 # counter[self._namespace][character.text] += 1
 
-    @overrides
     def token_to_indices(self, token: Token, vocabulary: Vocabulary) -> List[int]:
         indices = []
         if token.text is None:
