@@ -91,8 +91,9 @@ def make_reading_comprehension_instance(question_tokens: List[Token],
         # all of the annotations.  This is why we have a separate official SQuAD metric calculation
         # (the "em" and "f1" metrics use the official script).
         candidate_answers: Counter = Counter()
-        token_spans = set(token_spans)
+        token_spans = list(set(token_spans))
         span_fields = []
+        # print(answer_texts, passage_tokens[token_spans[0][0]: token_spans[0][1] + 1])
         span_fields = ListField([SpanField(start, end, passage_field)
                                           for start, end in token_spans])
     else:
@@ -140,6 +141,7 @@ class NoAnswerSquad2Reader(DatasetReader):
     @overrides
     def _read(self, file_path: str):
         # if `file_path` is a URL, redirect to the cache
+        no_answer_token = 'CANNOTANSWER'
         file_path = cached_path(file_path)
 
         logger.info("Reading file at %s", file_path)
@@ -149,14 +151,16 @@ class NoAnswerSquad2Reader(DatasetReader):
         logger.info("Reading the dataset")
         for article in dataset:
             for paragraph_json in article['paragraphs']:
-                paragraph = paragraph_json["context"] + ' noanswertoken'
+                paragraph = paragraph_json["context"] + ' ' +  no_answer_token
                 tokenized_paragraph = self._tokenizer.tokenize(paragraph) # + ['<no_answer_token>']
 
                 for question_answer in paragraph_json['qas']:
                     question_text = question_answer["question"].strip().replace("\n", "")
-                    answer_texts = [answer['text'] for answer in question_answer['answers']]
-                    span_starts = [answer['answer_start'] for answer in question_answer['answers']]
+                    answers = [{'text': no_answer_token, 'answer_start': len(paragraph) - len(no_answer_token)}] if len(question_answer['answers']) == 0 else question_answer['answers']
+                    answer_texts = [answer['text'] for answer in answers]
+                    span_starts = [answer['answer_start'] for answer in answers]
                     span_ends = [start + len(answer) for start, answer in zip(span_starts, answer_texts)]
+                    # print(answer_texts, span_starts, span_ends)
                     instance = self.text_to_instance(question_text,
                                                      paragraph,
                                                      question_answer['id'],
@@ -204,10 +208,10 @@ class NoAnswerSquad2Reader(DatasetReader):
                 token_spans,
                 answer_texts)
 
-    @classmethod
-    def from_params(cls, params: Params) -> 'Squad2Reader':
-        tokenizer = Tokenizer.from_params(params.pop('tokenizer', {}))
-        token_indexers = TokenIndexer.dict_from_params(params.pop('token_indexers', {}))
-        lazy = params.pop('lazy', False)
-        params.assert_empty(cls.__name__)
-        return cls(tokenizer=tokenizer, token_indexers=token_indexers, lazy=lazy)
+    # @classmethod
+    # def from_params(cls, params: Params) -> 'Squad2Reader':
+        # tokenizer = Tokenizer.from_params(params.pop('tokenizer', {}))
+        # token_indexers = TokenIndexer.dict_from_params(params.pop('token_indexers', {}))
+        # lazy = params.pop('lazy', False)
+        # params.assert_empty(cls.__name__)
+        # return cls(tokenizer=tokenizer, token_indexers=token_indexers, lazy=lazy)
