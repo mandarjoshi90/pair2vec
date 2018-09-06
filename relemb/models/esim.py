@@ -35,7 +35,7 @@ class VariationalDropout(torch.nn.Dropout):
             return dropout_mask.unsqueeze(1) * input
 
 
-@Model.register("esim")
+@Model.register("esim-2")
 class ESIM(Model):
     """
     This ``Model`` implements the ESIM sequence model described in `"Enhanced LSTM for Natural Language Inference"
