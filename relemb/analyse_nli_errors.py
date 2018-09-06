@@ -12,10 +12,10 @@ def read_predictions_file(fname, data):
     all_data = []
     for pred, datum in zip(preds, data):
         pred_label, _ = get_best_label(pred['label_probs'])
-        gold_label = datum['gold_label']
+        gold_label = datum.get('gold_label', None)
         premise = ' '.join(pred['premise_tokens'])
         hypothesis = ' '.join(pred['hypothesis_tokens'])
-        all_data.append({'premise': premise, 'hypothesis': hypothesis, 'gold_label': gold_label, 'pred_label': pred_label})
+        all_data.append({'pairID': datum['pairID'],'premise': premise, 'hypothesis': hypothesis, 'gold_label': gold_label, 'pred_label': pred_label})
     return all_data
 
 
@@ -24,6 +24,12 @@ def read_jsonl_file(fname):
     preds = []
     for line in f:
         preds.append(json.loads(line))
+    return preds
+
+def write_csv(preds, fname):
+    with open(fname, encoding='utf-8', mode='w') as f:
+        for pred in preds:
+            f.write(','.join(pred) + '\n')
     return preds
 
 def print_relevant(pred):
@@ -47,9 +53,22 @@ def analyse_positives(baseline_f, model_f, data_f):
             count += 1
     print('count', count)
 
+def output_pred_csv(model_f, data_f):
+    data = read_jsonl_file(data_f)
+    model_preds = read_predictions_file(model_f, data)
+    positives = []
+    count = 0
+    preds = [['pairID', 'gold_label']]
+    for model_pred in model_preds:
+        preds += [[model_pred['pairID'], model_pred['pred_label']]]
+        count += 1
+    print('count', count)
+    write_csv(preds, model_f.replace('jsonl', 'tsv'))
+
 if __name__ == '__main__':
     import sys
-    baseline_f = sys.argv[1]
-    model_f = sys.argv[2]
-    data_f = sys.argv[3]
-    analyse_positives(baseline_f, model_f, data_f)
+    # baseline_f = sys.argv[1]
+    model_f = sys.argv[1]
+    data_f = sys.argv[2]
+    output_pred_csv(model_f, data_f)
+    # analyse_positives(baseline_f, model_f, data_f)
