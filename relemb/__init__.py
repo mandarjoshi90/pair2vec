@@ -4,7 +4,7 @@ from relemb.data.dataset_readers.conceptnet_multiword_word import MWConceptNetRe
 from relemb.service.predictors import *
 from relemb.data.dataset_readers.squad import Squad2Reader
 from relemb.data.dataset_readers.no_answer_squad import NoAnswerSquad2Reader
-from relemb.data.dataset_readers.srl_reader import RelembSrlReader
+#from relemb.data.dataset_readers.srl_reader import RelembSrlReader
 #from relemb.data.dataset_readers.quac import QuACReader
 from relemb.squad2 import Squad2Predictor
 # import ipdb
