@@ -117,9 +117,7 @@
         },
         "num_epochs": 30,
         "optimizer": {
-            "type": "sgd",
-            "lr": 0.01,
-            "momentum": 0.9
+            "type": "adam",
         },
         "patience": 10,
         "validation_metric": "+f1"
