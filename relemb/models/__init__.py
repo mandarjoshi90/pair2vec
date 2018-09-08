@@ -16,4 +16,4 @@ from relemb.models.relemb_document_qa import RelembDocQANoAnswer
 from relemb.models.relemb_bna import RelembBidafNoAnswer
 #from relemb.models.srl_relemb import RelembSemanticRoleLabeler
 #from relemb.models.coref_relemb import RelembCoreferenceResolver
-#from relemb.models.dialog_qa import RelembDialogQA
+from relemb.models.relemb_dialog_qa import RelembDialogQA
