@@ -23,7 +23,7 @@
         "type": "relemb-esim",
         "dropout": 0.5,
         "relemb_dropout": 0.15,
-        "ablation_type": "pairwise_diff",,
+        "ablation_type": "pairwise_diff",
         "mask_key": "elmo",
         "reverse_rels": true,
         "config_file": "models/typed_2-2_normalized/relemb.json",
