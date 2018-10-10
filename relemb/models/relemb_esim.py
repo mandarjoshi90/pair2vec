@@ -229,7 +229,7 @@ class RelembESIM(Model):
             premise_as_args = self.get_argument_rep(premise['relemb_tokens'])
             hypothesis_as_args = self.get_argument_rep(hypothesis['relemb_tokens'])
         else:
-            key = 'tokens'
+            key = 'relemb_tokens'
             embedder = getattr(self._text_field_embedder, 'token_embedder_{}'.format(key)) # if key != 'relemb_tokens' else self.get_argument_rep
             premise_as_args = embedder(premise[key])
             hypothesis_as_args = embedder(hypothesis[key])
@@ -271,8 +271,8 @@ class RelembESIM(Model):
         if self._ablation_type == 'pairwise_diff':
             bs, premise_len, dim = premise_as_args.size()
             _, hypothesis_len, dim = hypothesis_as_args.size()
-            token_premise_mask = 1 - (torch.eq(premise['tokens'], 0).long() + torch.eq(premise['tokens'], 1).long())
-            token_hypothesis_mask = 1 - (torch.eq(hypothesis['tokens'], 0).long() + torch.eq(hypothesis['tokens'], 1).long())
+            token_premise_mask = 1 - (torch.eq(premise['relemb_tokens'], 0).long() + torch.eq(premise['relemb_tokens'], 1).long())
+            token_hypothesis_mask = 1 - (torch.eq(hypothesis['relemb_tokens'], 0).long() + torch.eq(hypothesis['relemb_tokens'], 1).long())
             p2h_relations = normalize(premise_as_args.unsqueeze(2).expand(bs, premise_len, hypothesis_len, dim) - hypothesis_as_args.unsqueeze(1).expand(bs, premise_len, hypothesis_len, dim), dim=-1)
             h2p_relations = normalize(hypothesis_as_args.unsqueeze(2).expand(bs, hypothesis_len, premise_len, dim) - premise_as_args.unsqueeze(1).expand(bs, hypothesis_len, premise_len, dim), dim=-1)
 
