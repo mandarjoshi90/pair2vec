@@ -1,0 +1,126 @@
+{
+    "dataset_reader": {
+        "type": "snli",
+        "token_indexers": {
+            "tokens": {
+                "type": "single_id",
+                "lowercase_tokens": true,
+                "namespace": "tokens"
+            },
+            "relemb_tokens": {
+                "type": "single_id",
+                "lowercase_tokens": true,
+                "namespace": "relemb_tokens"
+            },
+            "elmo": {
+                "type": "elmo_characters"
+            }
+        },
+        "tokenizer": {
+            "end_tokens": [
+                "@@NULL@@"
+            ]
+        }
+    },
+    "train_data_path": "data/mnli/multinli_1.0_train.jsonl",
+    "validation_data_path": "data/mnli/multinli_1.0_dev_mismatched.jsonl",
+    "vocabulary": {
+        "directory_path": "models/elmo_attn_over_args_32/vocabulary"
+    },
+    "model": {
+        "type": "modified_dat",
+        "ablation_type": "attn_over_args",
+        "elmo_attention": true,
+        "config_file": "models/smoothed_600/wiki_words.json",
+        "model_file": "models/smoothed_600/best.pt",
+        "drop   out": 0.2,
+        "text_field_embedder": {
+            "tokens": {
+                "type": "embedding",
+                "projection_dim": 200,
+                "pretrained_file": "data/glove/glove.6B.300d.txt.gz",
+                "embedding_dim": 300,
+                "vocab_namespace": "tokens",
+                "trainable": false
+            },
+            "elmo": {
+				"type": "elmo_token_embedder",
+				"options_file": "https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/2x4096_512_2048cnn_2xhighway/elmo_2x4096_512_2048cnn_2xhighway_options.json",
+				"weight_file": "https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/2x4096_512_2048cnn_2xhighway/elmo_2x4096_512_2048cnn_2xhighway_weights.hdf5",
+				"do_layer_norm": false,
+				"dropout": 0.5
+			}
+        },
+        "attend_feedforward": {
+            "input_dim": 1224,
+            "num_layers": 2,
+            "hidden_dims": 200,
+            "activations": "relu",
+            "dropout": 0.2
+        },
+        "similarity_function": {
+            "type": "dot_product"
+        },
+        "compare_feedforward": {
+            "input_dim": 700,
+            "num_layers": 2,
+            "hidden_dims": 200,
+            "activations": "relu",
+            "dropout": 0.2
+        },
+        "aggregate_feedforward": {
+            "input_dim": 400,
+            "num_layers": 2,
+            "hidden_dims": [
+                200,
+                3
+            ],
+            "activations": [
+                "relu",
+                "linear"
+            ],
+            "dropout": [
+                0.2,
+                0.0
+            ]
+        },
+        "initializer": [
+            [
+                ".*linear_layers.*weight",
+                {
+                    "type": "xavier_normal"
+                }
+            ],
+            [
+                ".*token_embedder_tokens\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\._projection.*weight",
+                {
+                    "type": "xavier_normal"
+                }
+            ]
+        ]
+    },
+    "iterator": {
+        "type": "bucket",
+        "sorting_keys": [
+            [
+                "premise",
+                "num_tokens"
+            ],
+            [
+                "hypothesis",
+                "num_tokens"
+            ]
+        ],
+        "batch_size": 32
+    },
+    "trainer": {
+        "num_epochs": 140,
+        "patience": 140,
+        "cuda_device": 0,
+        "grad_clipping": 5.0,
+        "validation_metric": "+accuracy",
+        "optimizer": {
+            "type": "adagrad"
+        }
+    }
+}

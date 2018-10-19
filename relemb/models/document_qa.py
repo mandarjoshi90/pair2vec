@@ -16,6 +16,35 @@ from allennlp.training.metrics import Average, BooleanAccuracy, CategoricalAccur
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
+# class VariationalDropout(torch.nn.Module):
+    # def __init__(self, p):
+        # super().__init__()
+        # self.p = p
+
+
+    # def forward(self, input):
+        # """
+        # input is shape (batch_size, timesteps, embedding_dim)
+        # Samples one mask of size (batch_size, embedding_dim) and applies it to every time step.
+        # """
+        # #ones = Variable(torch.ones(input.shape[0], input.shape[-1]))
+        # # ones = Variable(input.data.new(input.shape[0], input.shape[-1]), requires_grad=False)
+        # # dropout_mask = torch.nn.functional.dropout(ones, self.p, self.training, inplace=False)
+        # if self.training:
+            # dropout_mask = Variable(torch.bernoulli(torch.Tensor(input.size(0), input.size(-1)).fill_(self.p)))
+            # # import ipdb
+            # # ipdb.set_trace()
+            # if input.is_cuda:
+                # dropout_mask = dropout_mask.cuda()
+            # return dropout_mask.unsqueeze(1) * input
+        # else:
+            # return input
+        # # if self.inplace:
+            # # input *= dropout_mask.unsqueeze(1)
+            # # return None
+        # # else:
+            # # return dropout_mask.unsqueeze(1) * input
+
 def repeat_question(question_tensor: Variable, num_paragraphs: int) -> Variable:
     """
     Turns a (batch_size, num_tokens, input_dim) tensor representing a question into a
@@ -88,8 +117,8 @@ class DocQANoAnswer(Model):
         self._official_f1 = Average()
         self._rnn_input_dropout = VariationalDropout(p=rnn_input_dropout)
         if dropout > 0:
-            self._dropout = torch.nn.Dropout(p=dropout)
-            # self._dropout = VariationalDropout(p=dropout)
+            # self._dropout = torch.nn.Dropout(p=dropout)
+            self._dropout = VariationalDropout(p=dropout)
         else:
             self._dropout = lambda x: x
         self._mask_lstms = mask_lstms
@@ -247,7 +276,7 @@ class DocQANoAnswer(Model):
 
         # print("residual", residual_layer.size())
 
-        final_merged_passage += residual_layer
+        final_merged_passage = final_merged_passage + residual_layer
         final_merged_passage = self._dropout(final_merged_passage)
 
         # Bi-GRU in paper
@@ -341,18 +370,32 @@ class DocQANoAnswer(Model):
                 'f1': self._official_f1.get_metric(reset)}
 
     @staticmethod
-    def get_best_span(span_start_logits: torch.Tensor, span_end_logits: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+    def get_span_scores(span_start_logits, span_end_logits):
+        batch_size, passage_len = span_start_logits.size()
+        add_se_scores = span_start_logits.unsqueeze(2).expand(batch_size, passage_len, passage_len) +  span_end_logits.unsqueeze(1).expand(batch_size, passage_len, passage_len)
+        upper_triu = Variable(torch.triu(torch.ones((passage_len, passage_len), out=add_se_scores.data.new())), requires_grad=False)
+        return torch.exp(add_se_scores) #* upper_triu.unsqueeze(0)
+
+    # @staticmethod
+    def get_best_span(self, span_start_logits: torch.Tensor, span_end_logits: torch.Tensor, no_answer_scores: torch.Tensor) -> torch.Tensor:
         if span_start_logits.dim() != 2 or span_end_logits.dim() != 2:
             raise ValueError("Input shapes must be (batch_size, passage_length)")
         batch_size, passage_length = span_start_logits.size()
         max_span_log_prob = [-1e20] * batch_size
-        no_answer_scores = z.detach().cpu().data.numpy()
         span_start_argmax = [0] * batch_size
         best_word_span = torch.zeros((batch_size, 2), out=span_start_logits.data.new()).long()
         # best_word_span = span_start_logits.new_zeros((batch_size, 2), dtype=torch.long)
 
+        add_se_scores = self.get_span_scores(span_start_logits,  span_end_logits)
+        no_answer_scores = no_answer_scores.squeeze(-1)
+        # import ipdb
+        # ipdb.set_trace()
+        no_answer_prob = torch.exp(no_answer_scores) / (torch.exp(no_answer_scores) + (add_se_scores).sum(-1).sum(-1))
+        no_answer_prob = no_answer_prob.detach().cpu().data.numpy()
         span_start_logits = span_start_logits.detach().cpu().data.numpy()
         span_end_logits = span_end_logits.detach().cpu().data.numpy()
+        no_answer_scores = no_answer_scores.detach().cpu().data.numpy()
+
 
         for b in range(batch_size):  # pylint: disable=invalid-name
             for j in range(passage_length):
@@ -363,11 +406,14 @@ class DocQANoAnswer(Model):
 
                 val2 = span_end_logits[b, j]
 
-                if val1 + val2 > max_span_log_prob[b]:
+                if val1 + val2 > max_span_log_prob[b] and j - span_start_argmax[b] >= 0 and j - span_start_argmax[b]+ 1 <= 17:
                     best_word_span[b, 0] = span_start_argmax[b]
                     best_word_span[b, 1] = j
                     max_span_log_prob[b] = val1 + val2
             if max_span_log_prob[b] < no_answer_scores[b]:
+            # if max_span_log_prob[b] < no_answer_scores[b] or no_answer_prob[b] > 0.21:
+            # if no_answer_prob[b] > 0.10:
+                # print(no_answer_prob[b])
                 best_word_span[b, 0] = -1
                 best_word_span[b, 1] = -1
         return best_word_span
