@@ -8,12 +8,12 @@ import torch.optim as optim
 from torch.nn.utils import clip_grad_norm
 from tensorboardX import SummaryWriter
 
-from noallen.model import RelationalEmbeddingModel, PairwiseRelationalEmbeddingModel, Pair2RelModel
-#from noallen.torchtext.data import read_data
-from noallen.torchtext.matrix_data import read_data
-from noallen.util import get_args, get_config, makedirs
-from noallen import metrics
-from  noallen import util
+from big.model import RelationalEmbeddingModel, PairwiseRelationalEmbeddingModel, Pair2RelModel
+#from big.torchtext.data import read_data
+from big.torchtext.matrix_data import read_data
+from big.util import get_args, get_config, makedirs
+from big import metrics
+from  big import util
 import numpy
 
 import logging

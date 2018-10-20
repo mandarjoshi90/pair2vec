@@ -6,11 +6,11 @@ from torch.nn.functional import softmax, normalize, embedding, tanh
 from allennlp.nn.util import masked_softmax
 from torch.autograd import Variable
 from torch.nn.init import xavier_normal, constant
-from noallen.util import pretrained_embeddings_or_xavier
-from noallen.torchtext.vocab import Vocab
-from noallen.torchtext.vocab import Vectors
-from noallen.contextualizer import Transformer
-from noallen.mlp import MLP
+from big.util import pretrained_embeddings_or_xavier
+from big.torchtext.vocab import Vocab
+from big.torchtext.vocab import Vectors
+from big.contextualizer import Transformer
+from big.mlp import MLP
 
 class SpanRepresentation(Module):
 

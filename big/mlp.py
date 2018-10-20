@@ -22,8 +22,8 @@ class MLP(nn.Module):
 
     def __init__(self, d, dropout):
         super(MLP, self).__init__()
-        linear1 = Linear(d, d, dropout)
-        linear2 = Linear(d, d, dropout)
+        linear1 = Linear(d, d * 4, dropout)
+        linear2 = Linear(d * 4, d, dropout)
         self.mlp = nn.Sequential(linear1, nn.ReLU(), linear2)
 
     def forward(self, x):

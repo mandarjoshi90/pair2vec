@@ -4,12 +4,12 @@ from typing import Dict
 from torch.nn import Module, Dropout, Sequential, Embedding, LogSigmoid, ReLU
 from torch.nn.functional import sigmoid, logsigmoid, softmax, normalize, log_softmax
 from allennlp.nn.util import get_text_field_mask
-from noallen.representation import SpanRepresentation, PositionalRepresentation, LRPositionalRepresentation, SubwordEmbedding, RelationLM
+from big.representation import SpanRepresentation, PositionalRepresentation, LRPositionalRepresentation, SubwordEmbedding, RelationLM
 from torch.nn.init import xavier_normal
-from noallen.util import pretrained_embeddings_or_xavier
+from big.util import pretrained_embeddings_or_xavier
 import numpy as np
 from torch.nn.functional import cosine_similarity
-from noallen.mlp import Linear, MLP, ResidualMLP
+from big.mlp import Linear, MLP, ResidualMLP
 
 
 def get_type_file(filename, vocab, indxs=False):

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from noallen.mlp import Linear, MLP
+from big.mlp import Linear, MLP
 
 
 class Transformer(nn.Module):
