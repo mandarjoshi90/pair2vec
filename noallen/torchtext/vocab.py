@@ -72,6 +72,7 @@ class Vocab(object):
         self.vectors = None
         if vectors is not None:
             self.load_vectors(vectors, unk_init=unk_init, cache=vectors_cache)
+            print('Loaded from {} {}'.format(vectors, vectors_cache))
         else:
             assert unk_init is None and vectors_cache is None
 

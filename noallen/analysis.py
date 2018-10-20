@@ -44,19 +44,19 @@ def get_kbc_pairs(relation_pattern_file, model):
             # word2.append(parts[2].strip())
     return word1, word2
 
-def get_word_pairs(relation_pattern_file):
+def get_word_pairs(relation_pattern_file, word1_idx=1, word2_idx=2):
     word1, word2 = [], []
     with open(relation_pattern_file, encoding='utf-8') as f:
         for line in f:
             parts = line.strip().split('\t')
             print(parts)
-            word1.append(parts[1].strip())
-            word2.append(parts[2].strip())
+            word1.append(parts[word1_idx].strip())
+            word2.append(parts[word2_idx].strip())
     return word1, word2
 
 
 def word_pair_to_pairs(relation_instance_file, model):
-    word1_str, word2_str = get_word_pairs(relation_instance_file)
+    word1_str, word2_str = get_word_pairs(relation_instance_file, 0)
     word1 = torch.cuda.LongTensor([model.arg_vocab.stoi[w] for w in word1_str])
     word2 = torch.cuda.LongTensor([model.arg_vocab.stoi[w] for w in word2_str])
     relation_embedding = get_relation_embedding(word1, word2, model)
@@ -224,7 +224,7 @@ if __name__ == '__main__':
     relation_pattern_file = sys.argv[3]
     neg_instance_file = sys.argv[4] if len(sys.argv) > 4 else None
     # out_dir = sys.argv[3]
-    #word_pair_to_pairs(relation_instance_file, model)
+    word_pair_to_pairs(relation_instance_file, model)
     #pattern_to_patterns(relation_pattern_file, model)
     #word_pair_to_patterns(relation_pattern_file, relation_instance_file, model)
-    patterns_to_kbc(relation_pattern_file, relation_instance_file, model, neg_instance_file)
+    #patterns_to_kbc(relation_pattern_file, relation_instance_file, model, neg_instance_file)

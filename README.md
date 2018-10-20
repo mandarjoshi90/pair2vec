@@ -1,1 +1,1 @@
-# relation-embeddings
+# pair2vec
