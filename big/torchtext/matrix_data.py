@@ -189,13 +189,13 @@ def dev_data(sample):
 
 def create_dataset(config, triplet_dir=None):
     triplet_dir = config.triplet_dir if triplet_dir is None else triplet_dir
-    #files = [os.path.join(config.triplet_dir, fname) for fname in os.listdir(config.triplet_dir) if fname.endswith('.npy')]
-    files = [os.path.join(triplet_dir, 'triplets_' + str(i) + '.npy') for i in range(1, 1000)]
+    files = sorted([os.path.join(config.triplet_dir, fname) for fname in os.listdir(config.triplet_dir) if fname.endswith('.npy')])
+    #files = [os.path.join(triplet_dir, 'triplets_' + str(i) + '.npy') for i in range(0, 1000)]
     train_data = _LazyInstances(lambda : iter(read(files[1:])))
     type_scores_file = config.type_scores_file if hasattr(config, 'type_scores_file') else None
     type_indices_file = config.type_indices_file if hasattr(config, 'type_indices_file') else None
     model_type = getattr(config, 'model_type', 'sampling')
-    validation_sample = read_dev(files[0], config.pairwise, 500000, config.compositional_rels, type_scores_file, type_indices_file, config.num_neg_samples, config.num_sampled_relations, model_type)
+    validation_sample = read_dev(files[0], config.pairwise, 100000, config.compositional_rels, type_scores_file, type_indices_file, config.num_neg_samples, config.num_sampled_relations, model_type)
     validation_data = _LazyInstances(lambda : iter (dev_data(validation_sample)))
     return train_data, validation_data
 
