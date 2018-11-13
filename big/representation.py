@@ -2,7 +2,7 @@ import numpy as np
 import sentencepiece as spm
 import torch
 from torch.nn import Module, Linear, Dropout, Sequential, LSTM, Embedding, GRU, ReLU, Parameter, LayerNorm
-from torch.nn.functional import softmax, normalize, embedding, tanh
+from torch.nn.functional import softmax, normalize, embedding, tanh, relu
 from allennlp.nn.util import masked_softmax
 from torch.autograd import Variable
 from torch.nn.init import xavier_normal, constant
@@ -10,7 +10,7 @@ from big.util import pretrained_embeddings_or_xavier
 from big.torchtext.vocab import Vocab
 from big.torchtext.vocab import Vectors
 from big.contextualizer import Transformer
-from big.mlp import MLP
+import big.mlp as mlp
 
 class SpanRepresentation(Module):
 
@@ -22,8 +22,9 @@ class SpanRepresentation(Module):
         self.embedding = Embedding(n_input, config.d_embed, sparse=True)
         self.normalize_pretrained = getattr(config, 'normalize_pretrained', False)
         self.contextualizer = Transformer(config.d_embed, config.num_transformer_heads, config.num_transformer_layers, config.dropout, config.num_positions)
-        self.norm = LayerNorm(config.d_embed)
-        self.mlp = MLP(config.d_embed, config.dropout)
+        #self.mlp = mlp.MLP(config.d_embed, config.dropout)
+        self.linear1 = mlp.Linear(config.d_embed*2, config.d_embed*8, config.dropout)
+        self.linear2 = mlp.Linear(config.d_embed*8, config.d_embed, config.dropout)
         self.init()
     
     def init(self):
@@ -37,12 +38,17 @@ class SpanRepresentation(Module):
     
     def forward(self, text):
         mask = text.sign().float()
-        text = self.embedding(text)
-        text = self.contextualizer(text, mask)
-        x = torch.max(text + torch.log(mask.unsqueeze(-1)), dim=1)[0]
-        #return self.mlp(self.norm(x))
-        return self.mlp(tanh(x))
-        #return self.mlp(x)
+        v = self.embedding(text)
+        v = self.contextualizer(v, mask)
+        x_indices = (text == 2).nonzero()
+        y_indices = (text == 3).nonzero()
+        x = v[x_indices[:, 0], x_indices[:, 1], :]
+        y = v[y_indices[:, 0], y_indices[:, 1], :]
+        #x = torch.max(text + torch.log(mask.unsqueeze(-1)), dim=1)[0]
+        #return self.mlp(tanh(x))
+        mlp1 = self.linear1(torch.cat([x, y], dim=-1))
+        mlp2 = self.linear2(relu(mlp1))
+        return mlp2
 
 
 class RelationLM(Module):
