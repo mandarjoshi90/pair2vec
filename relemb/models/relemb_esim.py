@@ -17,11 +17,11 @@ from allennlp.modules import Seq2SeqEncoder, SimilarityFunction, TimeDistributed
 from allennlp.nn import InitializerApplicator, RegularizerApplicator
 from allennlp.nn.util import get_text_field_mask, last_dim_softmax, weighted_sum, replace_masked_values
 from allennlp.training.metrics import CategoricalAccuracy
-from noallen.torchtext.vocab import Vocab
-from noallen.torchtext.matrix_data import create_vocab
-from noallen.torchtext.indexed_field import Field
-from noallen.util import load_model, get_config
-from noallen.model import RelationalEmbeddingModel, PairwiseRelationalEmbeddingModel, Pair2RelModel
+from big.torchtext.vocab import Vocab
+from big.torchtext.matrix_data import create_vocab
+from big.torchtext.indexed_field import Field
+from big.util import load_model, get_config
+from big.model import RelationalEmbeddingModel, PairwiseRelationalEmbeddingModel, Pair2RelModel
 
 class VariationalDropout(torch.nn.Dropout):
     def forward(self, input):
