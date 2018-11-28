@@ -120,6 +120,7 @@ class RelembESIM(Model):
             for param in self.relemb.parameters():
                 param.requires_grad = False
             self.relemb.represent_relations = None
+            self.relemb.predict_relations = torch.nn.DataParallel(self.relemb.predict_relations) #Added for MultiGPUs
         self._embedding_keys = embedding_keys
         self._mask_key = mask_key
         self._text_field_embedder = text_field_embedder
@@ -435,9 +436,9 @@ class RelembESIM(Model):
 
         dropout = params.pop("dropout", 0)
         relemb_dropout = params.pop("relemb_dropout", 0)
-        pretrained_file = params.pop('model_file')
+        pretrained_file = params.pop('relemb_model_file')
         mask_key = params.pop('mask_key')
-        config_file = params.pop('config_file')
+        config_file = params.pop('relemb_config_file')
         ablation_type = params.pop('ablation_type', 'vanilla')
         embedding_keys = params.pop('embedding_keys', ['tokens'])
         relemb_config = get_config(config_file, params.pop('experiment', 'multiplication')) if not ablation_type.startswith('vanilla') else None
