@@ -15,7 +15,10 @@ def load_model(resume_snapshot, model):
         checkpoint = torch.load(resume_snapshot)
         print("Loaded checkpoint '{}' (epoch {} iter: {} train_loss: {}, dev_loss: {}, train_pos:{}, train_neg: {}, dev_pos: {}, dev_neg: {})"
               .format(resume_snapshot, checkpoint['epoch'], checkpoint['iterations'], checkpoint['train_loss'], checkpoint['dev_loss'], checkpoint['train_pos'], checkpoint['train_neg'], checkpoint['dev_pos'], checkpoint['dev_neg']))
-        model.load_state_dict(checkpoint['state_dict'], strict=True)
+        #model.load_state_dict(checkpoint['state_dict'], strict=True)
+        state_dict = checkpoint['state_dict']
+        state_dict = {k[7:] if k[:7] == 'module.' else k: v for k, v in state_dict.items()}
+        model.load_state_dict(state_dict, strict=True)
     else:
         # logger.info("No checkpoint found at '{}'".format(resume_snapshot))
         raise ValueError("No checkpoint found at {}".format(resume_snapshot))
