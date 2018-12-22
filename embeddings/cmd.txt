@@ -1,0 +1,1 @@
+python preprocess.py /sdb/data/wikipedia-sentences/shuf_sentences.txt /sdb/data/models/temp/  /sdb/data/wikipedia-sentences/counts.txt /sdb/data/wikipedia-sentences/sorted_coor_counts.txt

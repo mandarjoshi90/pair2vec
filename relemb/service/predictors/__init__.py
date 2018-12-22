@@ -1,1 +1,0 @@
-from relemb.service.predictors.distmult import DistMultRePredictor

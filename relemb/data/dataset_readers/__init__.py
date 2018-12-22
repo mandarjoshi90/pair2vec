@@ -1,5 +1,0 @@
-from relemb.data.dataset_readers.fb15K_pairs import FB15KPairReader
-from relemb.data.dataset_readers.fb15K import FB15KReader
-from relemb.data.dataset_readers.conceptnet_single_word import ConceptNetReader
-from relemb.data.dataset_readers.conceptnet_multiword_word import MWConceptNetReader
-from relemb.data.dataset_readers.nli_relemb import NLIRelembReader
