@@ -3,7 +3,7 @@
 This repository contains the code for replicating results from
 
 * [pair2vec: Compositional Word-Pair Embeddings for Cross-Sentence Inference](https://arxiv.org/abs/1810.08854)
-* [Mandar Joshi](https://homes.cs.washington.edu/~mandar90/), [Eunsol Choi](https://homes.cs.washington.edu/~eunsol), [Omer Levy](https://levyomer.wordpress.com/), [Dan Weld](https://www.cs.washington.edu/people/faculty/weld), and [Luke Zettlemoyer](https://www.cs.washington.edu/people/faculty/lsz)
+  [Mandar Joshi](https://homes.cs.washington.edu/~mandar90/), [Eunsol Choi](https://homes.cs.washington.edu/~eunsol), [Omer Levy](https://levyomer.wordpress.com/), [Dan Weld](https://www.cs.washington.edu/people/faculty/weld), and [Luke Zettlemoyer](https://www.cs.washington.edu/people/faculty/lsz)
 
 ## Getting Started
 
