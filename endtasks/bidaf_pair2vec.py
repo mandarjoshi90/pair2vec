@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 
 @Model.register("bidaf-pair2vec")
-class pair2vecQuacModel(Model):
+class BidafPair2Vec(Model):
     """
     This class implements modified version of BiDAF
     (with self attention and residual layer, from Clark and Gardner ACL 17 paper) model as used in
@@ -61,7 +61,7 @@ class pair2vecQuacModel(Model):
                  pair2vec_dropout: float = 0.15,
                  max_span_length: int = 30,
                  pair2vec_model_file: str = None,
-                 pair2ve_config_file: str = None
+                 pair2vec_config_file: str = None
                  ) -> None:
         super().__init__(vocab)
         self._max_span_length = max_span_length
@@ -155,8 +155,8 @@ class pair2vecQuacModel(Model):
         pair2vec_passage_tokens = passage['pair2vec_tokens']
         del question['pair2vec_tokens']
         del passage['pair2vec_tokens']
-        embedded_question = self._variational_dropout(torch.cat(tuple(self._text_field_embedder(question).values()), dim=-1))
-        embedded_passage = self._variational_dropout(torch.cat(tuple(self._text_field_embedder(passage).values()), dim=-1))
+        embedded_question = self._variational_dropout(self._text_field_embedder(question))
+        embedded_passage = self._variational_dropout(self._text_field_embedder(passage))
 
         # Extended batch size takes into account batch size * num paragraphs
         extended_batch_size = embedded_question.size(0)
@@ -187,18 +187,18 @@ class pair2vecQuacModel(Model):
         question_passage_similarity = masked_similarity.max(dim=-1)[0].squeeze(-1)
         question_passage_attention = util.masked_softmax(question_passage_similarity,
                                                          passage_mask)
-        passage_as_args = pair2vec_util.get_pair2vec_word_embeddings(pair2vec, pair2vec_passage_tokens)
-        question_as_args = pair2vec_util.get_pair2vec_word_embeddings(pair2vec, pair2vec_question_tokens)
+        passage_as_args = pair2vec_util.get_pair2vec_word_embeddings(self.pair2vec, pair2vec_passage_tokens)
+        question_as_args = pair2vec_util.get_pair2vec_word_embeddings(self.pair2vec, pair2vec_question_tokens)
         # get mask for padding and unknowns
         pair2vec_passage_mask = 1 - (torch.eq(pair2vec_passage_tokens, 0).long() + torch.eq(pair2vec_passage_tokens, 1).long())
         pair2vec_question_mask = 1 - (torch.eq(pair2vec_question_tokens, 0).long() + torch.eq(pair2vec_question_tokens, 1).long())
         # normalize with masked softmask
         pair2vec_attention = util.last_dim_softmax(passage_question_similarity, pair2vec_question_mask)
         # get relation embedding
-        p2q_pairs = normalize(self.get_relation_embedding(passage_as_args, question_as_args), dim=-1)
-        q2p_pairs = normalize(self.get_relation_embedding(question_as_args, passage_as_args), dim=-1)
+        p2q_pairs = normalize(pair2vec_util.get_pair_embeddings(self.pair2vec, passage_as_args, question_as_args), dim=-1)
+        q2p_pairs = normalize(pair2vec_util.get_pair_embeddings(self.pair2vec, question_as_args, passage_as_args), dim=-1)
         # attention over pair2vec
-        attended_question_relations = self._pair2vec_dropout(util.weighted_sum(p2q_pairs, pq_rel_attention))
+        attended_question_relations = self._pair2vec_dropout(util.weighted_sum(p2q_pairs, pair2vec_attention))
         attended_passage_relations = self._pair2vec_dropout(util.weighted_sum(q2p_pairs.transpose(1,2), pair2vec_attention))
         # mask out stuff
         attended_question_pairs = attended_question_relations * pair2vec_passage_mask.float().unsqueeze(-1)
