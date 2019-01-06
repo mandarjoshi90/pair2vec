@@ -214,11 +214,11 @@ class RelembQuacModel(Model):
         relemb_passage_tokens = passage['relemb_tokens']
         del question['relemb_tokens']
         del passage['relemb_tokens']
-        embedded_question = self._variational_dropout(torch.cat(tuple(self._text_field_embedder(question).values()), dim=-1))
-        embedded_passage = self._variational_dropout(torch.cat(tuple(self._text_field_embedder(passage).values()), dim=-1))
+        # embedded_question = self._variational_dropout(torch.cat(tuple(self._text_field_embedder(question).values()), dim=-1))
+        # embedded_passage = self._variational_dropout(torch.cat(tuple(self._text_field_embedder(passage).values()), dim=-1))
         
-        # embedded_question = self._variational_dropout(self._text_field_embedder(question))
-        # embedded_passage = self._variational_dropout(self._text_field_embedder(passage))
+        embedded_question = self._variational_dropout(self._text_field_embedder(question))
+        embedded_passage = self._variational_dropout(self._text_field_embedder(passage))
 
         # Extended batch size takes into account batch size * num paragraphs
         extended_batch_size = embedded_question.size(0)
