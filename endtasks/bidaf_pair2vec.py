@@ -161,8 +161,10 @@ class BidafPair2Vec(Model):
         # Extended batch size takes into account batch size * num paragraphs
         extended_batch_size = embedded_question.size(0)
         passage_length = embedded_passage.size(1)
-        question_mask = util.get_text_field_mask(question).float()
-        passage_mask = util.get_text_field_mask(passage).float()
+        #question_mask = util.get_text_field_mask(question).float()
+        #passage_mask = util.get_text_field_mask(passage).float()
+        question_mask = pair2vec_util.get_mask(question, 'elmo').float()
+        passage_mask = pair2vec_util.get_mask(passage, 'elmo').float()
 
         # Phrase layer is the shared Bi-GRU in the paper
         # (extended_batch_size, sequence_length, input_dim) -> (extended_batch_size, sequence_length, encoding_dim)
@@ -203,7 +205,7 @@ class BidafPair2Vec(Model):
         # mask out stuff
         attended_question_pairs = attended_question_relations * pair2vec_passage_mask.float().unsqueeze(-1)
         attended_passage_pairs = attended_passage_relations * pair2vec_passage_mask.float().unsqueeze(-1)
-        attended_pairs = torch.cat((attended_question_relations, attended_passage_relations), dim=-1)
+        attended_pairs = torch.cat((attended_question_pairs, attended_passage_pairs), dim=-1)
         # Shape: (batch_size * max_qa_count, encoding_dim)
         question_passage_vector = util.weighted_sum(encoded_passage, question_passage_attention)
         tiled_question_passage_vector = question_passage_vector.unsqueeze(1).expand(extended_batch_size,

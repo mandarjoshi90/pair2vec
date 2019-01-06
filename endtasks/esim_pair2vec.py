@@ -81,6 +81,7 @@ class ESIMPair2Vec(Model):
                  initializer: InitializerApplicator = InitializerApplicator(),
                  dropout: float = 0.5,
                  pair2vec_dropout: float = 0.0,
+                 bidirectional_pair2vec: bool = True,
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
         super().__init__(vocab, regularizer)
         self._vocab = vocab
@@ -97,6 +98,7 @@ class ESIMPair2Vec(Model):
 
         self._inference_encoder = inference_encoder
         self._pair2vec_dropout = torch.nn.Dropout(pair2vec_dropout)
+        self._bidirectional_pair2vec = bidirectional_pair2vec
 
         if dropout:
             self.dropout = torch.nn.Dropout(dropout)
@@ -179,7 +181,11 @@ class ESIMPair2Vec(Model):
         # cross sequence embeddings
         ph_pair_embeddings = normalize(util.get_pair_embeddings(self.pair2vec, premise_as_args, hypothesis_as_args), dim=-1)
         hp_pair_embeddings = normalize(util.get_pair_embeddings(self.pair2vec, hypothesis_as_args, premise_as_args), dim=-1)
-        pair_embeddings = torch.cat((ph_pair_embeddings, hp_pair_embeddings.transpose(1,2)), dim=-1)
+        if self._bidirectional_pair2vec:
+            temp = torch.cat((ph_pair_embeddings, hp_pair_embeddings.transpose(1,2)), dim=-1)
+            hp_pair_embeddings = torch.cat((hp_pair_embeddings, ph_pair_embeddings.transpose(1,2)), dim=-1)
+            ph_pair_embeddings = temp
+        # pair_embeddings = torch.cat((ph_pair_embeddings, hp_pair_embeddings.transpose(1,2)), dim=-1)
         # pair2vec masks
         pair2vec_premise_mask = 1 - (torch.eq(premise['pair2vec_tokens'], 0).long() + torch.eq(premise['pair2vec_tokens'], 1).long())
         pair2vec_hypothesis_mask = 1 - (torch.eq(hypothesis['pair2vec_tokens'], 0).long() + torch.eq(hypothesis['pair2vec_tokens'], 1).long())
@@ -187,8 +193,8 @@ class ESIMPair2Vec(Model):
         h2p_attention = last_dim_softmax(similarity_matrix.transpose(1, 2).contiguous(), pair2vec_premise_mask)
         p2h_attention = last_dim_softmax(similarity_matrix, pair2vec_hypothesis_mask)
 
-        attended_hypothesis_pairs = self._pair2vec_dropout(weighted_sum(pair_embeddings, p2h_attention)) * pair2vec_premise_mask.float().unsqueeze(-1)
-        attended_premise_pairs = self._pair2vec_dropout(weighted_sum(pair_embeddings.transpose(1,2), h2p_attention)) * pair2vec_hypothesis_mask.float().unsqueeze(-1)
+        attended_hypothesis_pairs = self._pair2vec_dropout(weighted_sum(ph_pair_embeddings, p2h_attention)) * pair2vec_premise_mask.float().unsqueeze(-1)
+        attended_premise_pairs = self._pair2vec_dropout(weighted_sum(hp_pair_embeddings, h2p_attention)) * pair2vec_hypothesis_mask.float().unsqueeze(-1)
 
 
         # the "enhancement" layer
