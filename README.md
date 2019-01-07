@@ -6,24 +6,25 @@ This repository contains the code for replicating results from
 * [Mandar Joshi](https://homes.cs.washington.edu/~mandar90/), [Eunsol Choi](https://homes.cs.washington.edu/~eunsol), [Omer Levy](https://levyomer.wordpress.com/), [Dan Weld](https://www.cs.washington.edu/people/faculty/weld), and [Luke Zettlemoyer](https://www.cs.washington.edu/people/faculty/lsz)
 
 ## Getting Started
-
 * Install python3 requirements: `pip install -r requirements.txt`
 
 ## Using pretrained pair2vec embeddings
-* If you want to reproduce results from the paper on QA/NLI, please use the following:
-    * Download pretrained models: `./download_models.sh
-    * Run evaluation:`
-```
-python -m allennlp.run evaluate [--output-file OUTPUT_FILE]
-                             [--cuda-device CUDA_DEVICE]
-                             [--include-package INCLUDE_PACKAGE]
-                             archive_file input_file
-```
-* If you want to train your own QA/NLI model:
-```
-python -m allennlp.run train <config_file> -s <serialization_dir> --include-package endtasks
-```
-See the experiments directory for relevant config files.
+* Download pretrained pair2vec: `./download_pair2vec`
+    * If you want to reproduce results from the paper on QA/NLI, please use the following:
+        * Download pretrained models: `./download_models.sh`
+        * Run evaluation:
+    ```
+    python -m allennlp.run evaluate [--output-file OUTPUT_FILE]
+                                 [--cuda-device CUDA_DEVICE]
+                                 [--include-package INCLUDE_PACKAGE]
+                                 archive_file input_file
+    ```
+    * If you want to train your own QA/NLI model:
+    ```
+    python -m allennlp.run train <config_file> -s <serialization_dir> --include-package endtasks
+    ```
+See the `experiments` directory for relevant config files.
+i
 ## Training your own embeddings
 * Download the preprocessed corpus if you want to train pair2vec from scratch: `./download_corpus.sh`
 * Training: This starts the training process which typically takes 7-10 days. It takes in a config file and a directory to save checkpoints.

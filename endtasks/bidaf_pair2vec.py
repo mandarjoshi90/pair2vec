@@ -230,16 +230,6 @@ class BidafPair2Vec(Model):
         mask = (passage_mask.resize(extended_batch_size, passage_length, 1) *
                 passage_mask.resize(extended_batch_size, 1, passage_length))
 
-        # Mask should have zeros on the diagonal.
-        # torch.eye does not have a gpu implementation, so we are forced to use
-        # the cpu one and .cuda(). Not sure if this matters for performance.
-        # eye = torch.eye(passage_length, passage_length)
-        # if mask.is_cuda:
-            # eye = eye.cuda()
-        # self_mask = Variable(eye).resize(1, passage_length, passage_length)
-        # mask = mask * (1 - self_mask)
-
-
         self_mask = torch.eye(passage_length, passage_length, device=self_attention_matrix.device)
         self_mask = self_mask.resize(1, passage_length, passage_length)
         mask = mask * (1 - self_mask)
@@ -288,9 +278,6 @@ class BidafPair2Vec(Model):
             passage_str = metadata[i]['original_passage']
             offsets = metadata[i]['token_offsets']
             predicted_span = tuple(best_span[i].cpu().numpy())
-            #if predicted_span[0] == -1 or predicted_span[1] == -1:
-            #    best_span_string = ''
-            #else:
             start_offset = offsets[predicted_span[0]][0]
             end_offset = offsets[predicted_span[1]][1]
             best_span_string = passage_str[start_offset:end_offset]
@@ -304,12 +291,10 @@ class BidafPair2Vec(Model):
             exact_match = f1_score = 0
             if answer_texts:
                 exact_match = squad2_eval.metric_max_over_ground_truths(
-                        # squad_eval.exact_match_score,
                         squad2_eval.compute_exact,
                         best_span_string,
                         answer_texts)
                 f1_score = squad2_eval.metric_max_over_ground_truths(
-                        # squad_eval.f1_score,
                         squad2_eval.compute_f1,
                         best_span_string,
                         answer_texts)
@@ -356,41 +341,3 @@ class BidafPair2Vec(Model):
                     max_span_log_prob[b_i] = val1 + val2
         return best_word_span
 
-    @staticmethod
-    def load_model(resume_snapshot):
-        if os.path.isfile(resume_snapshot):
-            checkpoint = torch.load(resume_snapshot)
-            return checkpoint['state_dict']
-        else:
-            raise ValueError("No checkpoint found at {}".format(resume_snapshot))
-
-
-class MLP(Module):
-    def __init__(self, d_args, state_dict):
-        super(MLP, self).__init__()
-        self.requires_grad = False
-        self.nonlinearity = ReLU()
-        lin1 = Linear(3 * d_args, d_args)
-        lin4 = Linear(d_args, d_args)
-        lin7 = Linear(d_args, d_args)
-        lin10 = Linear(d_args, d_args)
-        lin1.weight.data = state_dict['predict_relations.mlp.1.weight']
-        lin1.bias.data = state_dict['predict_relations.mlp.1.bias']
-        lin4.weight.data = state_dict['predict_relations.mlp.4.weight']
-        lin4.bias.data = state_dict['predict_relations.mlp.4.bias']
-        lin7.weight.data = state_dict['predict_relations.mlp.7.weight']
-        lin7.bias.data = state_dict['predict_relations.mlp.7.bias']
-        lin10.weight.data = state_dict['predict_relations.mlp.10.weight']
-        lin10.bias.data = state_dict['predict_relations.mlp.10.bias']
-
-        self.mlp = Sequential(lin1, self.nonlinearity,
-                              lin4, self.nonlinearity,
-                              lin7, self.nonlinearity,
-                              lin10)
-
-    def forward(self, subjects, objects):
-        dots = subjects * objects
-        # normalization happens here, concat s2o and o2s.
-        s2o = normalize(self.mlp(torch.cat([subjects, objects, dots], dim=-1)), dim=-1)
-        o2s = normalize(self.mlp(torch.cat([objects, subjects, dots], dim=-1)), dim=-1)
-        return torch.cat([s2o, o2s], dim=-1)

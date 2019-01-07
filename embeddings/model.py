@@ -17,9 +17,9 @@ def get_type_file(filename, vocab, indxs=False):
         data = np.concatenate((np.ones((len(vocab) - data.shape[0], data.shape[1]), dtype=data.dtype), data))
     return torch.from_numpy(data)
 
-class RelationalEmbeddingModel(Module):
+class Pair2Vec(Module):
     def __init__(self, config, arg_vocab, rel_vocab):
-        super(RelationalEmbeddingModel, self).__init__()
+        super(Pair2Vec, self).__init__()
         self.config = config
         self.arg_vocab = arg_vocab
         self.rel_vocab = rel_vocab
@@ -47,33 +47,17 @@ class RelationalEmbeddingModel(Module):
         if self.type_scores is not None:
             self.loss_weights += [('type_subject_loss', getattr(config, 'type_subject_loss', 0.3)), ('type_object_loss', getattr(config, 'type_object_loss', 0.3))]
         self.shared_arg_embeddings = getattr(config, 'shared_arg_embeddings', True)
-        if config.compositional_args:
-            self.represent_left_argument = SpanRepresentation(config, config.d_args, arg_vocab)
-            self.represent_right_argument = self.represent_left_argument if self.shared_arg_embeddings else SpanRepresentation(config, config.d_args, arg_vocab)
-        else:
-            if self.subword_vocab_file is not None:
-                self.represent_arguments = SubwordEmbedding(config, arg_vocab)
-                self.represent_left_argument = lambda x : self.represent_arguments(x)
-                self.represent_right_argument = (lambda x: self.represent_arguments(x)) if self.shared_arg_embeddings else SubwordEmbedding(config, arg_vocab)
-            else:
-                self.represent_arguments = Embedding(config.n_args, config.d_embed)
-                self.represent_left_argument = lambda x : self.represent_arguments(x)
-                self.represent_right_argument = (lambda x : self.represent_arguments(x)) if self.shared_arg_embeddings else Embedding(config.n_args, config.d_embed)
+        self.represent_arguments = Embedding(config.n_args, config.d_embed)
+        self.represent_left_argument = lambda x : self.represent_arguments(x)
+        self.represent_right_argument = (lambda x : self.represent_arguments(x)) if self.shared_arg_embeddings else Embedding(config.n_args, config.d_embed)
         if config.compositional_rels:
             self.represent_relations = SpanRepresentation(config, config.d_rels, rel_vocab)
         else:
-            self.n_rels = config.n_rels
-            if self.positional_rels:
-                self.represent_relations = LRPositionalRepresentation(config, rel_vocab)
-            else:
-                self.represent_relations = Embedding(config.n_rels, config.d_rels) if not self.separate_mlr else Embedding(3*config.n_rels, config.d_rels)
-                # self.represent_relations = Sequential(self.represent_relations, Linear(config.d_rels, config.d_rels))
+            raise NotImplementedError()
         if config.relation_predictor == 'multiplication':
             self.predict_relations = lambda x, y: x * y
         elif config.relation_predictor == 'mlp':
             self.predict_relations = MLP(config)
-        elif config.relation_predictor == 'gated_interpolation':
-            self.predict_relations = GatedInterpolation(config)
         else:
             raise Exception('Unknown relation predictor: ' + config.relation_predictor)
         self.init()
@@ -90,15 +74,6 @@ class RelationalEmbeddingModel(Module):
                     print('Copied pretrained vecs for argument matrix')
                 else:
                     arg_matrix.reset_parameters()
-        if isinstance(self.represent_relations, Embedding):
-            if self.rel_vocab.vectors is not None:
-                pretrained = normalize(self.rel_vocab.vectors, dim=-1) if self.normalize_pretrained else self.rel_vocab.vectors
-                self.represent_relations.weight.data[:self.n_rels].copy_(pretrained) #.repeat(3,1))
-                if self.separate_mlr:
-                    self.represent_relations.weight.data[self.n_rels:2*self.n_rels].copy_(pretrained) #.repeat(3,1))
-                    self.represent_relations.weight.data[2*self.n_rels:3*self.n_rels].copy_(pretrained) #.repeat(3,1))
-            else:
-                self.represent_relations.reset_parameters()
 
     def forward(self, batch):
         if len(batch) == 4:

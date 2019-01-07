@@ -136,7 +136,7 @@ class TripletIterator():
                     yield tensors
 
 def create_vocab(config, field):
-    vocab_path = os.path.join(config.triplet_dir, "vocab.txt")
+    vocab_path = getattr(config, 'vocab_file', os.path.join(config.triplet_dir, "vocab.txt"))
     tokens = None
     with open(vocab_path) as f:
         text = f.read()

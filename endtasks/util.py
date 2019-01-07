@@ -2,7 +2,7 @@ from embeddings.vocab import Vocab
 from embeddings.matrix_data import create_vocab
 from embeddings.indexed_field import Field
 from embeddings.util import load_model, get_config
-from embeddings.model import RelationalEmbeddingModel
+from embeddings.model import Pair2Vec
 
 # Get input to the encoder by concatenating representations (ELMo, charCNN etc.) specified in keys
 def get_encoder_input(text_field_embedder, text_field_input, keys):
@@ -20,7 +20,7 @@ def get_pair2vec(pair2vec_config_file, pair2vec_model_file):
     field = Field(batch_first=True)
     create_vocab(pair2vec_config, field)
     pair2vec_config.n_args = len(field.vocab)
-    pair2vec = RelationalEmbeddingModel(pair2vec_config, field.vocab, field.vocab)
+    pair2vec = Pair2Vec(pair2vec_config, field.vocab, field.vocab)
     load_model(pair2vec_model_file, pair2vec)
     # freeze pair2vec
     for param in pair2vec.parameters():

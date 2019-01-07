@@ -7,7 +7,7 @@ import torch.optim as optim
 from torch.nn.utils import clip_grad_norm
 from tensorboardX import SummaryWriter
 
-from embeddings.model import RelationalEmbeddingModel
+from embeddings.model import Pair2Vec
 from embeddings.matrix_data import read_data
 from embeddings.util import get_args, get_config, makedirs
 from embeddings import metrics, util
@@ -41,12 +41,8 @@ def main(args, config):
     train_data, dev_data, train_iterator, dev_iterator, args_field, rels_field = read_data(config, preindex=True)
 
     model_type = getattr(config, 'model_type', 'sampling')
-    if model_type == 'pairwise':
-        model = PairwiseRelationalEmbeddingModel(config, args_field.vocab, rels_field.vocab)
-    elif model_type == 'sampling':
-        model = RelationalEmbeddingModel(config, args_field.vocab, rels_field.vocab)
-    elif model_type == 'pair2seq':
-        model = Pair2RelModel(config, args_field.vocab, rels_field.vocab)
+    if model_type == 'sampling':
+        model = Pair2Vec(config, args_field.vocab, rels_field.vocab)
     else:
         raise NotImplementedError()
 
