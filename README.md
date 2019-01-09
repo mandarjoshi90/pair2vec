@@ -29,7 +29,7 @@ See the `experiments` directory for relevant config files.
 * Download the preprocessed corpus if you want to train pair2vec from scratch: `./download_corpus.sh`
 * Training: This starts the training process which typically takes 7-10 days. It takes in a config file and a directory to save checkpoints.
 ```
-python -m pair2vec.train --config full.json --save_path <directory>
+python -m embeddings.train --config experiments/pair2vec_train.json --save_path <directory>
 ```
 
 ## Miscellaneous
