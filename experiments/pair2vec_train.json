@@ -1,5 +1,6 @@
 {
     "compositional_rels": true,
+    "compositional_args": false,
     "positional_rels": false,
     "triplet_dir": "data/softsample",
     "vocab_file": "experiments/vocab_pair2vec.txt",
@@ -22,6 +23,7 @@
     "type_subject_loss": 1.0,
     "type_object_loss": 1.0,
     "dropout": 0.0,
+    "pairwise": false,
     "relation_predictor": "mlp",
     "lr": 0.01,
     "epochs": 12,
