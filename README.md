@@ -9,9 +9,9 @@ This repository contains the code for replicating results from
 * Install python3 requirements: `pip install -r requirements.txt`
 
 ## Using pretrained pair2vec embeddings
-* Download pretrained pair2vec: `./download_pair2vec`
+* Download pretrained pair2vec: `./download_pair2vec.sh`
     * If you want to reproduce results from the paper on QA/NLI, please use the following:
-        * Download pretrained models: `./download_models.sh`
+        * Download [pretrained models](http://nlp.cs.washington.edu/pair2vec/pretrained_models.tar.gz)
         * Run evaluation:
     ```
     python -m allennlp.run evaluate [--output-file OUTPUT_FILE]
@@ -24,7 +24,7 @@ This repository contains the code for replicating results from
     python -m allennlp.run train <config_file> -s <serialization_dir> --include-package endtasks
     ```
 See the `experiments` directory for relevant config files.
-i
+
 ## Training your own embeddings
 * Download the preprocessed corpus if you want to train pair2vec from scratch: `./download_corpus.sh`
 * Training: This starts the training process which typically takes 7-10 days. It takes in a config file and a directory to save checkpoints.
