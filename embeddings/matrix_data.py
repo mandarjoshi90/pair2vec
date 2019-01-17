@@ -75,8 +75,6 @@ def shuffled_sampling(instances):
 def sample_compositional(instances, alpha=None, compositional_rels=True, type_scores=None, type_indices=None, num_neg_samples=1, num_sampled_relations=1, model_type='sampling'):
     np.random.shuffle(instances)
     subjects, objects, relations = instances[:, 0],  instances[:, 1],  instances[:, 2:]
-    if model_type == 'pair2seq':
-        return subjects, objects, relations
     relations = relations if compositional_rels or relations.shape[1] > 1 else relations.reshape(relations.shape[0])
     sample_fn, kwargs = (smoothed_sampling, {'alpha': alpha, 'num_neg_samples': num_sampled_relations}) if alpha is not None else (shuffled_sampling, {})
     sampled_relations = sample_fn(relations, **kwargs)
@@ -86,20 +84,11 @@ def sample_compositional(instances, alpha=None, compositional_rels=True, type_sc
     return  subjects, objects, relations, sampled_relations, sampled_subjects, sampled_objects #, type_sampled_subjects, type_sampled_objects
 
 
-def sample_pairs(instances, alpha=None, compositional_rels=True, type_scores=None, type_indices=None, num_neg_samples=1, num_sampled_relations=1, model_type='sampling'):
-    np.random.shuffle(instances)
-    pairs, relations = instances[:, 0],  instances[:, 1:]
-    relations = relations if compositional_rels or relations.shape[1] > 1 else relations.reshape(relations.shape[0])
-    sample_fn, kwargs = (smoothed_sampling, {'alpha': alpha, 'num_neg_samples': num_neg_samples}) if alpha is not None else (shuffled_sampling, {})
-    sampled_relations = sample_fn(relations, **kwargs)
-    sampled_relations = sampled_relations.reshape((relations.shape[0], relations.shape[1], num_neg_samples))
-    return pairs, relations, sampled_relations
 
 class TripletIterator():
-    def __init__(self, batch_size, fields, pairwise=False, return_nl=False, limit=None, compositional_rels=True, type_scores_file=None, type_indices_file=None, num_neg_samples=1,
+    def __init__(self, batch_size, fields, return_nl=False, limit=None, compositional_rels=True, type_scores_file=None, type_indices_file=None, num_neg_samples=1,
             alpha=0.75, num_sampled_relations=1, model_type='sampling'):
         self.batch_size = batch_size
-        self.pairwise = pairwise
         self.fields = fields
         self.return_nl = return_nl
         self.limit = limit
@@ -120,7 +109,7 @@ class TripletIterator():
     def _create_batches(self, instance_gen, device=-1, train=True):
         for instances in instance_gen:
             start = 0
-            sample = sample_pairs if self.pairwise else sample_compositional
+            sample = sample_compositional
             inputs = instances if (not train) else sample(instances, self.alpha, self.compositional_rels, self.type_scores, self.type_indices, self.num_neg_samples, self.num_sampled_relations, model_type=self.model_type)
             for num, batch_start in enumerate(range(0, inputs[0].shape[0], self.batch_size)):
                 tensors = tuple(Variable(torch.LongTensor(x[batch_start: batch_start + self.batch_size]), requires_grad=False) for x in inputs)
@@ -128,7 +117,7 @@ class TripletIterator():
                     tensors = tuple([t.cuda() if t is not None else None for t in tensors])
                 if self.return_nl:
                     relation_nl = []
-                    rel_index = 2 if not self.pairwise else 1
+                    rel_index = 2
                     for rel in  inputs[rel_index][batch_start: batch_start + self.batch_size]:
                         relation_nl += [' '.join([self.fields[rel_index].vocab.itos[j] for j in rel])]
                     yield tensors, (relation_nl)
@@ -154,13 +143,13 @@ def read(filenames):
             logger.info('Loading {} instances from {}'.format(instances.shape[0], fname))
             yield instances
 
-def read_dev(fname, pairwise=False, limit=None, compositional_rels=True, type_scores_file=None, type_indices_file=None, num_neg_samples=1, num_sampled_relations=1, model_type='sampling'):
+def read_dev(fname, limit=None, compositional_rels=True, type_scores_file=None, type_indices_file=None, num_neg_samples=1, num_sampled_relations=1, model_type='sampling'):
     instances = np.load(fname)
     instances = instances[:limit] if limit is not None else instances
     logger.info('Loading {} instances from {}'.format(instances.shape[0], fname))
     type_scores = None if type_scores_file is None else np.load(type_scores_file)
     type_indices = None if type_indices_file is None else np.load(type_indices_file)
-    sample = sample_pairs if pairwise else sample_compositional
+    sample = sample_compositional
     return sample(instances, alpha=.75, compositional_rels=compositional_rels, type_scores=type_scores, type_indices=type_indices, num_neg_samples=num_neg_samples, num_sampled_relations=num_sampled_relations, model_type=model_type)
 
 def dev_data(sample):
@@ -174,12 +163,12 @@ def create_dataset(config, triplet_dir=None):
     type_scores_file = config.type_scores_file if hasattr(config, 'type_scores_file') else None
     type_indices_file = config.type_indices_file if hasattr(config, 'type_indices_file') else None
     model_type = getattr(config, 'model_type', 'sampling')
-    validation_sample = read_dev(files[0], config.pairwise, 500000, config.compositional_rels, type_scores_file, type_indices_file, config.num_neg_samples, config.num_sampled_relations, model_type)
+    validation_sample = read_dev(files[0], 500000, config.compositional_rels, type_scores_file, type_indices_file, config.num_neg_samples, config.num_sampled_relations, model_type)
     validation_data = _LazyInstances(lambda : iter (dev_data(validation_sample)))
     return train_data, validation_data
 
 def read_data(config, return_nl=False, preindex=True):
-    args = Field(lower=True, batch_first=True) if config.compositional_args else Field(batch_first=True)
+    args = Field(lower=True, batch_first=True) 
     rels = Field(lower=True, batch_first=True) if config.compositional_rels else Field(batch_first=True)
     fields = [args, args, rels]
     train, dev = create_dataset(config)
@@ -194,9 +183,9 @@ def read_data(config, return_nl=False, preindex=True):
     model_type = getattr(config, 'model_type', 'sampling')
 
     train_iterator = TripletIterator(config.train_batch_size, fields , return_nl=return_nl,
-            compositional_rels=config.compositional_rels, type_scores_file=type_scores_file, type_indices_file=type_indices_file, pairwise=config.pairwise, num_neg_samples=config.num_neg_samples,
+            compositional_rels=config.compositional_rels, type_scores_file=type_scores_file, type_indices_file=type_indices_file, num_neg_samples=config.num_neg_samples,
             alpha=getattr(config, 'alpha', 0.75), num_sampled_relations=getattr(config, 'num_sampled_relations', 1), model_type=model_type)
-    dev_iterator = TripletIterator(config.dev_batch_size, fields, return_nl=return_nl, compositional_rels=config.compositional_rels, pairwise=config.pairwise, num_neg_samples=config.num_neg_samples,
+    dev_iterator = TripletIterator(config.dev_batch_size, fields, return_nl=return_nl, compositional_rels=config.compositional_rels, num_neg_samples=config.num_neg_samples,
             alpha=getattr(config, 'alpha', 0.75), num_sampled_relations=getattr(config, 'num_sampled_relations', 1), model_type=model_type)
 
     return train, dev, train_iterator, dev_iterator, args, rels

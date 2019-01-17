@@ -23,7 +23,6 @@
     "type_subject_loss": 1.0,
     "type_object_loss": 1.0,
     "dropout": 0.0,
-    "pairwise": false,
     "relation_predictor": "mlp",
     "lr": 0.01,
     "epochs": 12,
