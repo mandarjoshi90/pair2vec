@@ -11,13 +11,13 @@ This repository contains the code for replicating results from
 ## Using pretrained pair2vec embeddings
 * Download pretrained pair2vec: `./download_pair2vec.sh`
     * If you want to reproduce results from the paper on QA/NLI, please use the following:
-        * Download [pretrained models](http://nlp.cs.washington.edu/pair2vec/pretrained_models.tar.gz)
+        * Download and extract the pretrained models [tar file](http://nlp.cs.washington.edu/pair2vec/pretrained_models.tar.gz) 
         * Run evaluation:
     ```
     python -m allennlp.run evaluate [--output-file OUTPUT_FILE]
-                                 [--cuda-device CUDA_DEVICE]
-                                 [--include-package INCLUDE_PACKAGE]
-                                 archive_file input_file
+                                 --cuda-device 0
+                                 --include-package endtasks
+                                 ARCHIVE_FILE INPUT_FILE
     ```
     * If you want to train your own QA/NLI model:
     ```
