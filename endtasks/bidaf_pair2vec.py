@@ -9,12 +9,12 @@ from allennlp.data import Vocabulary
 from allennlp.models.model import Model
 from allennlp.modules import Seq2SeqEncoder, TimeDistributed, TextFieldEmbedder
 from allennlp.modules.matrix_attention.linear_matrix_attention import LinearMatrixAttention
-from allennlp.modules.input_variational_dropout import InputVariationalDropout
 from allennlp.nn import InitializerApplicator, util
 from allennlp.training.metrics import Average, BooleanAccuracy, CategoricalAccuracy, SquadEmAndF1
 from torch.nn.functional import normalize
 from endtasks import util as pair2vec_util
 from endtasks import squad2_eval
+from endtasks.modules import VariationalDropout as InputVariationalDropout
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 

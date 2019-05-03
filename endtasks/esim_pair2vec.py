@@ -13,20 +13,7 @@ from allennlp.nn import InitializerApplicator, RegularizerApplicator
 from allennlp.nn.util import get_text_field_mask, last_dim_softmax, weighted_sum, replace_masked_values
 from allennlp.training.metrics import CategoricalAccuracy
 from endtasks import util
-
-class VariationalDropout(torch.nn.Dropout):
-    def forward(self, input):
-        """
-        input is shape (batch_size, timesteps, embedding_dim)
-        Samples one mask of size (batch_size, embedding_dim) and applies it to every time step.
-        """
-        ones = Variable(input.data.new(input.shape[0], input.shape[-1]).fill_(1))
-        dropout_mask = torch.nn.functional.dropout(ones, self.p, self.training, inplace=False)
-        if self.inplace:
-            input *= dropout_mask.unsqueeze(1)
-            return None
-        else:
-            return dropout_mask.unsqueeze(1) * input
+from endtasks.modules import VariationalDropout
 
 
 @Model.register("esim-pair2vec")
