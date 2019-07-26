@@ -35,21 +35,19 @@ python -m embeddings.train --config experiments/pair2vec_train.json --save_path 
 ## Miscellaneous
 * If you use the code, please cite the following paper
 ```
-@article{DBLP:journals/corr/abs-1810-08854,
-  author    = {Mandar Joshi and
-               Eunsol Choi and
-               Omer Levy and
-               Daniel S. Weld and
-               Luke Zettlemoyer},
-  title     = {pair2vec: Compositional Word-Pair Embeddings for Cross-Sentence Inference},
-  journal   = {CoRR},
-  volume    = {abs/1810.08854},
-  year      = {2018},
-  url       = {http://arxiv.org/abs/1810.08854},
-  archivePrefix = {arXiv},
-  eprint    = {1810.08854},
-  timestamp = {Wed, 31 Oct 2018 14:24:29 +0100},
-  biburl    = {https://dblp.org/rec/bib/journals/corr/abs-1810-08854},
-  bibsource = {dblp computer science bibliography, https://dblp.org}
+@inproceedings{joshi-etal-2019-pair2vec,
+    title = "pair2vec: Compositional Word-Pair Embeddings for Cross-Sentence Inference",
+    author = "Joshi, Mandar  and
+      Choi, Eunsol  and
+      Levy, Omer  and
+      Weld, Daniel  and
+      Zettlemoyer, Luke",
+    booktitle = "Proceedings of the 2019 Conference of the North {A}merican Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers)",
+    month = jun,
+    year = "2019",
+    address = "Minneapolis, Minnesota",
+    publisher = "Association for Computational Linguistics",
+    url = "https://www.aclweb.org/anthology/N19-1362",
+    pages = "3597--3608"
 }
 ```
