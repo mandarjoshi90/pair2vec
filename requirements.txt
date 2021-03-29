@@ -67,7 +67,7 @@ ptyprocess==0.6.0
 py==1.7.0
 pyasn1==0.4.4
 pycparser==2.19
-Pygments==2.3.0
+Pygments==2.7.4
 pyhocon==0.3.48
 pyparsing==2.3.0
 pytest==4.0.1
